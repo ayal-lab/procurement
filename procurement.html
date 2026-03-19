@@ -219,7 +219,9 @@ async function shWrite(name,values){
   log('WRITE '+name+' rows:'+values.length+' cols:'+values[0]?.length);
   const r=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+S.gToken,'Content-Type':'application/json'},body:JSON.stringify({values})});
   if(!r.ok){const e=await r.json().catch(()=>({}));const msg=e?.error?.message||'fail';log('WRITE FAIL: '+msg);
-    if(r.status===401||r.status===403){S.gToken=null;S.gAuth=false;saveState();throw new Error('פג תוקף. התחברו שוב.');}throw new Error(msg);}
+    if(r.status===401){S.gToken=null;S.gAuth=false;saveState();throw new Error('פג תוקף החיבור ל-Google. לחצו "התחבר" שוב.');}
+    if(r.status===403){throw new Error('אין הרשאה! וודאו שהגיליון משותף עם החשבון שמחובר (הרשאת עריכה).');}
+    throw new Error(msg);}
   const res=await r.json();log('WRITE OK '+name+' range:'+res?.updates?.updatedRange);return res;
 }
 
@@ -317,7 +319,7 @@ function getSupContact(name){
 
 // AUTH
 function doLogin(){const u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
-  const user=USERS.find(x=>x.username===u&&x.password===p);if(!user){document.getElementById('loginError').style.display='block';return;}S.user=user;saveSession();showApp();}
+  const user=USERS.find(x=>x.username===u&&x.password===p);if(!user){document.getElementById('loginError').style.display='block';return;}S.user=user;showApp();}
 function doLogout(){S.user=null;localStorage.removeItem('pu4');document.getElementById('appPage').style.display='none';document.getElementById('loginPage').style.display='flex';}
 function showApp(){document.getElementById('loginPage').style.display='none';document.getElementById('appPage').style.display='flex';
   document.getElementById('uA').textContent=S.user.name.charAt(0);document.getElementById('uN').textContent=S.user.name;
@@ -337,9 +339,19 @@ function promptGoogleConnect(){
     <button class="btn btn-outline btn-full" onclick="closeModal()" style="margin-top:8px">אח"כ (מצב צפייה בלבד)</button>`);
 }
 // Check before any write action
-function requireGoogle(){
-  if(S.gAuth&&S.gToken)return true;
-  promptGoogleConnect();
+async function requireGoogle(){
+  if(!S.gToken){promptGoogleConnect();return false;}
+  // Actually verify token is still valid
+  try{
+    const r=await fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token='+S.gToken);
+    if(r.ok){S.gAuth=true;return true;}
+  }catch(e){}
+  // Token expired
+  S.gAuth=false;S.gToken=null;saveState();
+  openModal(`<h3>⚠️ פג תוקף החיבור ל-Google</h3>
+    <p style="color:var(--text2);margin-bottom:16px">הטוקן של Google פג תוקף. צריך להתחבר מחדש כדי לכתוב ל-Sheets.</p>
+    <p style="color:var(--text2);margin-bottom:16px"><b>שימו לב:</b> החשבון שמתחבר חייב הרשאת עריכה לגיליון Google Sheets. אם אתם מחוברים עם מייל אחר — וודאו שהגיליון משותף איתו.</p>
+    <button class="btn btn-primary btn-full" onclick="closeModal();googleLogin()">🔗 התחבר מחדש</button>`);
   return false;
 }
 
@@ -590,7 +602,7 @@ function renderApprove(el){
 }
 
 async function doApprove(oid,n){
-  if(!requireGoogle())return;
+  if(!await requireGoogle())return;
   if(!confirm('לאשר '+oid+'?'))return;
   const orders=getLO(),o=orders.find(x=>x['מספר הזמנה']===oid);if(!o){toast('לא נמצא','error');return;}
   const items=o.items||[];const approved=[];
@@ -679,7 +691,7 @@ function updateSubDomains(){const p=document.getElementById('oProj').value,dom=d
 
 // SUBMIT + SEND GMAIL
 async function submitOrder(){
-  if(!requireGoogle())return;
+  if(!await requireGoogle())return;
   const sup=document.getElementById('oSup').value,proj=document.getElementById('oProj').value,dom=document.getElementById('oDom').value,subDom=document.getElementById('oSubDom').value,notes=document.getElementById('oNotes').value;
   if(!sup){toast('בחרו ספק','error');return;}if(!proj){toast('בחרו פרויקט','error');return;}
   if(!dom){toast('בחרו תחום','error');return;}if(oi.every(i=>!i.productId)){toast('הוסיפו מוצר','error');return;}
@@ -866,7 +878,7 @@ function renderBudget(el){const proj=getUserProj(),sp=S.selectedProject||proj[0]
 
 function handleGoogleAuth(){if(S.gAuth){toast('מחובר','info');return;}googleLogin();}
 
-function init(){loadState();loadSession();checkOAuth();if(S.gToken)ensureGAuth();if(S.user)showApp();
+function init(){loadState();checkOAuth();if(S.gToken)ensureGAuth();
   document.getElementById('loginPass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
   document.getElementById('loginUser')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus();});}
 init();
