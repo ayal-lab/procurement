@@ -180,11 +180,12 @@ select:focus{outline:none;border-color:var(--accent)}select option{background:va
 <script>
 const CFG={SID:'1Xwbi3PlN2K9FfJea0sKC3pOk5XHxWVhe5KOuqkY5-yA',CID:'178709560097-9eur0mu87mfu762qpe8e8ibu9h08vvqc.apps.googleusercontent.com',KEY:'AIzaSyDePcH0mMB90U06NgjG6ywRelTvMMCn1Og',SCOPES:'https://www.googleapis.com/auth/spreadsheets',VAT:0.18,
   SH:{SUP:'ספקים',PROD:'מוצרים',BUD:'תקציב',ORD:'הזמנות רכש',APP:'הזמנות מאושרות'}};
-const USERS=[
-  {username:'ayal',password:'Ezy@2026!',name:'אייל כהן',email:'ayal@mihlol.co.il',role:'admin',projects:null},
-  {username:'roni',password:'Roni@2026!',name:'רוני לוי',role:'manager',projects:['נוף הגלעד 11','נוף הגלעד 18']},
-  {username:'david',password:'David@2026!',name:'דוד כהן',role:'manager',projects:['עדן 21','בזלת 16']},
-  {username:'viewer',password:'View@2026!',name:'צופה',role:'viewer',projects:null},
+// Default users — will be overridden by "משתמשים" sheet if exists
+let USERS=[
+  {username:'ayal',password:'Ezy@2026!',name:'אייל כהן',email:'ayal@mihlol.co.il',role:'admin'},
+  {username:'roni',password:'Roni@2026!',name:'רוני לוי',role:'manager'},
+  {username:'david',password:'David@2026!',name:'דוד כהן',role:'manager'},
+  {username:'viewer',password:'View@2026!',name:'צופה',role:'viewer'},
 ];
 
 const ORD_H=['מספר הזמנה','תאריך','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
@@ -257,6 +258,25 @@ async function syncData(sl=true){
     b.rows.forEach(row=>{for(const[k,v] of Object.entries(row)){if(k.includes('פרויקט')||k.includes('project')||k.includes('פרוייקט')){if(v)ps.add(v);}}});
     if(ps.size===0)['נוף הגלעד 11','נוף הגלעד 18','נוף הדגן אלון מורה','עדן 21','בזלת 16','גבעת סלעית מחולה','האופק 32 ירוחם','האופק 36 ירוחם','צורים'].forEach(p=>ps.add(p));
     S.data.projects=[...ps];log('Projects: '+S.data.projects.join(', '));
+
+    // Load users from "משתמשים" sheet if exists
+    try{
+      const uR=await shRead('משתמשים').catch(()=>[]);
+      if(uR.length>1){
+        const uParsed=parse(uR);
+        if(uParsed.rows.length){
+          USERS=uParsed.rows.map(r=>({
+            username:fc(r,['שם משתמש','username','user'])||'',
+            password:fc(r,['סיסמה','סיסמא','password'])||'',
+            name:fc(r,['שם','name','שם מלא'])||'',
+            email:fc(r,['מייל','email'])||'',
+            role:fc(r,['תפקיד','role'])||'viewer'
+          })).filter(u=>u.username&&u.password);
+          log('Users from Sheets: '+USERS.length);
+        }
+      }
+    }catch(e){log('Users sheet not found, using defaults');}
+
     S.lastSync=new Date().toISOString();saveState();
     if(sl){hideLoad();toast('✅ סנכרון','success');}
   }catch(e){if(sl)hideLoad();toast('❌ '+e.message,'error');}
@@ -357,7 +377,7 @@ async function requireGoogle(){
 }
 
 const PAGES=[{id:'dashboard',label:'דאשבורד',icon:'📊',roles:['admin','manager','viewer']},{id:'orders',label:'הזמנות רכש',icon:'📋',roles:['admin','manager','viewer']},
-  {id:'approve',label:'אישור הזמנות',icon:'✅',roles:['admin']},{id:'neworder',label:'הזמנה חדשה',icon:'➕',roles:['admin','manager']},
+  {id:'approve',label:'אישור הזמנות',icon:'✅',roles:['admin','manager']},{id:'neworder',label:'הזמנה חדשה',icon:'➕',roles:['admin','manager']},
   {id:'suppliers',label:'ספקים',icon:'🏢',roles:['admin','manager','viewer']},{id:'products',label:'מוצרים',icon:'📦',roles:['admin','manager','viewer']},{id:'budget',label:'תקציב',icon:'💰',roles:['admin','manager','viewer']}];
 function buildNav(){const pn=getAllOrders().filter(o=>(o['סטטוס']||'')==='ממתין לאישור').length;
   document.getElementById('sidebarNav').innerHTML=PAGES.filter(p=>p.roles.includes(S.user.role)).map(p=>
@@ -372,12 +392,13 @@ function buildNav(){const pn=getAllOrders().filter(o=>(o['סטטוס']||'')==='�
   mn.innerHTML=mobPages.filter(p=>PAGES.find(x=>x.id===p.id)?.roles.includes(S.user.role)).map(p=>
     `<div class="mob-tab ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')">
       <div class="ico">${p.icon}</div><div>${p.label}${p.id==='approve'&&pn>0?' ('+pn+')':''}</div></div>`).join('')
+    +`<div class="mob-tab" onclick="handleGoogleAuth()"><div class="ico">${S.gAuth?'🟢':'🔴'}</div><div>Google</div></div>`
     +`<div class="mob-tab" onclick="doLogout()"><div class="ico">⏻</div><div>יציאה</div></div>`;}
 }
 function navigate(p){S.page=p;buildNav();renderPage();document.getElementById('sidebar').classList.remove('open');}
 function renderPage(){const m=document.getElementById('mainContent');({dashboard:renderDashboard,orders:renderOrders,approve:renderApprove,neworder:renderNewOrder,suppliers:renderSuppliers,products:renderProducts,budget:renderBudget})[S.page]?.(m);}
 
-function getUserProj(){return(S.user.role==='admin'||S.user.role==='viewer')?S.data.projects:(S.user.projects||S.data.projects);}
+function getUserProj(){return S.data.projects;}
 function getAllOrders(){const m=new Map();(S.data.orders||[]).forEach(r=>{const id=r['מספר הזמנה'];if(!id)return;if(!m.has(id))m.set(id,{...r,_items:[]});m.get(id)._items.push(r);});
   getLO().forEach(o=>{const id=o['מספר הזמנה'];if(id)m.set(id,o);});return[...m.values()];}
 function getOrderItems(o){if(o.items&&Array.isArray(o.items))return o.items;if(o._items)return o._items.map(r=>({id:r['מקט']||'',desc:r['תיאור מוצר']||'',qty:parseInt(r['כמות'])||0,price:parseFloat(r['מחיר ליחידה'])||0,total:parseFloat(r['סהכ שורה'])||0}));
@@ -881,7 +902,22 @@ function renderBudget(el){const proj=getUserProj(),sp=S.selectedProject||proj[0]
     <button class="btn btn-outline btn-sm" onclick="showDebug()" style="margin-top:8px">🐛 נתונים גולמיים</button></div>`;
 }
 
-function handleGoogleAuth(){if(S.gAuth){toast('מחובר','info');return;}googleLogin();}
+function handleGoogleAuth(){
+  if(S.gAuth){
+    openModal(`<h3>🔗 חשבון Google</h3>
+      <p style="color:var(--text2);margin-bottom:16px">מחובר ל-Google Sheets. הטוקן תקף.</p>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-danger" onclick="disconnectGoogle()">🔌 התנתק מ-Google</button>
+        <button class="btn btn-outline" onclick="closeModal()">סגור</button>
+      </div>`);
+    return;
+  }
+  googleLogin();
+}
+function disconnectGoogle(){
+  S.gToken=null;S.gAuth=false;saveState();
+  closeModal();toast('Google מנותק','info');buildNav();renderPage();
+}
 
 function init(){
   // Clear old user sessions — always require login
