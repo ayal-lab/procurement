@@ -84,7 +84,56 @@ select:focus{outline:none;border-color:var(--accent)}select option{background:va
 .loading-overlay .spinner{width:40px;height:40px;border-width:3px}
 .debug-panel{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin:8px 0;font-size:11px;color:var(--text2);max-height:300px;overflow-y:auto;font-family:monospace;direction:ltr;text-align:left;white-space:pre-wrap;word-break:break-all}
 .mobile-toggle{display:none;position:fixed;top:12px;right:12px;z-index:200}
-@media(max-width:768px){.sidebar{transform:translateX(100%)}.sidebar.open{transform:translateX(0)}.main{margin-right:0;padding:16px}.mobile-toggle{display:flex}.form-row{grid-template-columns:1fr}.budget-row{grid-template-columns:1fr 1fr;font-size:13px}.stats-row{grid-template-columns:1fr 1fr}.oi-row{grid-template-columns:1fr 1fr}}
+@media(max-width:768px){
+  .sidebar{transform:translateX(100%);width:260px}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-right:0;padding:12px 10px}
+  .mobile-toggle{display:flex}
+  .form-row{grid-template-columns:1fr}
+  .budget-row{grid-template-columns:1fr;gap:4px;padding:12px 0;font-size:13px}
+  .budget-row.header{display:none}
+  .budget-row>div{display:flex;justify-content:space-between;align-items:center}
+  .budget-row>div::before{font-size:11px;color:var(--text3);font-weight:500}
+  .stats-row{grid-template-columns:1fr 1fr;gap:10px}
+  .stat-card{padding:14px}
+  .stat-value{font-size:22px}
+  .stat-label{font-size:12px}
+  .oi-row{grid-template-columns:1fr;gap:6px;padding:12px 0;border-bottom:1px solid var(--border)}
+  .oi-row.header{display:none}
+  .oi-row select{font-size:14px;padding:10px}
+  .oi-row input{font-size:14px;padding:10px}
+  .topbar{gap:10px;margin-bottom:16px}
+  .topbar h2{font-size:20px;flex:none;width:100%}
+  .filter-bar{flex-direction:column;align-items:stretch;gap:8px}
+  .filter-bar select{width:100%;min-width:0}
+  .filter-bar label{font-size:13px}
+  .card{padding:16px;margin-bottom:12px}
+  .card-title{font-size:15px}
+  table{font-size:12px}
+  th,td{padding:8px 6px}
+  .btn{padding:10px 16px;font-size:13px}
+  .btn-sm{padding:8px 12px;font-size:12px}
+  .modal{padding:16px;max-width:95vw;max-height:90vh}
+  .modal h3{font-size:18px}
+  .ai{grid-template-columns:30px 1fr;gap:6px;font-size:12px}
+  .ai.header{display:none}
+  .approve-card-item{display:flex;flex-direction:column;gap:4px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .nav-item{padding:12px 16px;font-size:15px}
+  .google-status{font-size:12px;padding:6px 12px}
+  .main{padding-bottom:80px}
+  .mobile-bottom-nav{display:flex !important}
+  .sidebar{display:none !important}
+  .mobile-toggle{display:none !important}
+}
+.mobile-bottom-nav{
+  display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);
+  border-top:1px solid var(--border);z-index:200;padding:4px 0;
+  justify-content:space-around;
+}
+.mob-tab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;
+  color:var(--text3);font-size:10px;cursor:pointer;flex:1;text-align:center;border-radius:8px}
+.mob-tab.active{color:var(--accent);background:var(--accent-glow)}
+.mob-tab .ico{font-size:20px}
 .fade-in{animation:fadeIn 0.3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .empty-state{text-align:center;padding:48px 20px;color:var(--text3)}.empty-state .icon{font-size:48px;margin-bottom:12px}
 .ai{display:grid;grid-template-columns:40px 2fr 1fr 80px 80px 80px 100px;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
@@ -115,11 +164,12 @@ select:focus{outline:none;border-color:var(--accent)}select option{background:va
     </div></div>
   </div>
   <div class="main" id="mainContent"></div>
+  <div class="mobile-bottom-nav" id="mobileNav"></div>
 </div>
 <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()"><div class="modal" id="modalContent"></div></div>
 
 <script>
-const CFG={SID:'1Xwbi3PlN2K9FfJea0sKC3pOk5XHxWVhe5KOuqkY5-yA',CID:'178709560097-9eur0mu87mfu762qpe8e8ibu9h08vvqc.apps.googleusercontent.com',KEY:'AIzaSyDePcH0mMB90U06NgjG6ywRelTvMMCn1Og',SCOPES:'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.send',VAT:0.18,
+const CFG={SID:'1Xwbi3PlN2K9FfJea0sKC3pOk5XHxWVhe5KOuqkY5-yA',CID:'178709560097-9eur0mu87mfu762qpe8e8ibu9h08vvqc.apps.googleusercontent.com',KEY:'AIzaSyDePcH0mMB90U06NgjG6ywRelTvMMCn1Og',SCOPES:'https://www.googleapis.com/auth/spreadsheets',VAT:0.18,
   SH:{SUP:'ספקים',PROD:'מוצרים',BUD:'תקציב',ORD:'הזמנות רכש',APP:'הזמנות מאושרות'}};
 const USERS=[{username:'admin',password:'admin123',name:'אייל כהן',email:'ayal@mihlol.co.il',role:'admin',projects:null},{username:'roni',password:'roni123',name:'רוני לוי',role:'manager',projects:['נוף הגלעד 11','נוף הגלעד 18']},{username:'david',password:'david123',name:'דוד כהן',role:'manager',projects:['עדן 21','בזלת 16']},{username:'viewer1',password:'view123',name:'צופה',role:'viewer',projects:null}];
 
@@ -284,7 +334,18 @@ const PAGES=[{id:'dashboard',label:'דאשבורד',icon:'📊',roles:['admin','
   {id:'suppliers',label:'ספקים',icon:'🏢',roles:['admin','manager','viewer']},{id:'products',label:'מוצרים',icon:'📦',roles:['admin','manager','viewer']},{id:'budget',label:'תקציב',icon:'💰',roles:['admin','manager','viewer']}];
 function buildNav(){const pn=getAllOrders().filter(o=>(o['סטטוס']||'')==='ממתין לאישור').length;
   document.getElementById('sidebarNav').innerHTML=PAGES.filter(p=>p.roles.includes(S.user.role)).map(p=>
-    `<div class="nav-item ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')"><span class="icon">${p.icon}</span>${p.label}${p.id==='approve'&&pn>0?`<span class="nav-badge">${pn}</span>`:''}</div>`).join('');}
+    `<div class="nav-item ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')"><span class="icon">${p.icon}</span>${p.label}${p.id==='approve'&&pn>0?`<span class="nav-badge">${pn}</span>`:''}</div>`).join('');
+  // Mobile bottom nav
+  const mn=document.getElementById('mobileNav');
+  if(mn){const mobPages=[
+    {id:'dashboard',icon:'📊',label:'דאשבורד'},{id:'orders',icon:'📋',label:'הזמנות'},
+    {id:'neworder',icon:'➕',label:'חדשה'},{id:'approve',icon:'✅',label:'אישור'},
+    {id:'budget',icon:'💰',label:'תקציב'}
+  ];
+  mn.innerHTML=mobPages.filter(p=>PAGES.find(x=>x.id===p.id)?.roles.includes(S.user.role)).map(p=>
+    `<div class="mob-tab ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')">
+      <div class="ico">${p.icon}</div><div>${p.label}${p.id==='approve'&&pn>0?' ('+pn+')':''}</div></div>`).join('');}
+}
 function navigate(p){S.page=p;buildNav();renderPage();document.getElementById('sidebar').classList.remove('open');}
 function renderPage(){const m=document.getElementById('mainContent');({dashboard:renderDashboard,orders:renderOrders,approve:renderApprove,neworder:renderNewOrder,suppliers:renderSuppliers,products:renderProducts,budget:renderBudget})[S.page]?.(m);}
 
@@ -490,19 +551,23 @@ function renderApprove(el){
     ${!pending.length?'<div class="card"><div class="empty-state"><div class="icon">✅</div><p>אין ממתינות</p></div></div>':`
     ${pending.map(o=>{const items=getOrderItems(o);
       return`<div class="card">
-        <div class="card-header"><div class="card-title">${o['מספר הזמנה']} — ${o['ספק']||''} — ${o['פרויקט']||''}</div>
-          <div style="font-size:13px;color:var(--text2)">${o['תאריך']||''} | ${o['יוצר']||''}</div></div>
-        <div class="ai header"><div>✓</div><div>מוצר</div><div>מק״ט</div><div>כמות</div><div>כמות מאושרת</div><div>מחיר</div><div>סה״כ</div></div>
-        ${items.map((it,i)=>`<div class="ai">
-          <div><input type="checkbox" id="ac_${o['מספר הזמנה']}_${i}" checked></div>
-          <div>${it.desc||''}</div><div style="color:var(--text2)">${it.id||''}</div>
-          <div style="text-align:center">${it.qty}</div>
-          <div><input type="number" id="aq_${o['מספר הזמנה']}_${i}" value="${it.qty}" min="0"></div>
-          <div style="text-align:center">${cur(it.price||0)}</div>
-          <div style="font-weight:600">${cur(it.total||0)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div><div style="font-weight:700;font-size:16px">${o['מספר הזמנה']}</div>
+            <div style="font-size:13px;color:var(--text2)">${o['ספק']||''} | ${o['פרויקט']||''} | ${o['תאריך']||''}</div></div>
+          <div style="font-size:13px;color:var(--text2)">יוצר: ${o['יוצר']||''}</div></div>
+        ${items.map((it,i)=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div><input type="checkbox" id="ac_${o['מספר הזמנה']}_${i}" checked style="width:20px;height:20px;cursor:pointer;vertical-align:middle"> <span style="font-weight:600">${it.desc||''}</span></div>
+            <div style="font-weight:700">${cur(it.total||0)}</div>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--text2)">
+            <div>מק״ט: ${it.id||'—'}</div>
+            <div>מחיר: ${cur(it.price||0)}</div>
+            <div style="display:flex;align-items:center;gap:6px">כמות: ${it.qty} ← מאושר: <input type="number" id="aq_${o['מספר הזמנה']}_${i}" value="${it.qty}" min="0" style="width:60px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;text-align:center"></div>
+          </div>
         </div>`).join('')}
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
-          <div style="font-size:16px;font-weight:700">סה״כ: ${cur(o['סהכ הזמנה כולל מעמ']||o['סכום כולל מעמ']||0)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px">
+          <div style="font-size:18px;font-weight:700">סה״כ: ${cur(o['סהכ הזמנה כולל מעמ']||o['סכום כולל מעמ']||0)}</div>
           <div style="display:flex;gap:8px"><button class="btn btn-success" onclick="doApprove('${o['מספר הזמנה']}',${items.length})">✓ אשר</button>
             <button class="btn btn-danger btn-sm" onclick="doReject('${o['מספר הזמנה']}')">✗ דחה</button></div></div></div>`;}).join('')}`}</div>`;
 }
@@ -623,8 +688,7 @@ async function submitOrder(){
 }
 
 // GMAIL API — send HTML email directly, no copy-paste
-async function sendGmail(o){
-  if(!S.gToken){toast('⚠️ לא מחובר ל-Google','error');return;}
+function sendGmail(o){
   const items=getOrderItems(o);
   const email=getSupEmail(o['ספק']);
   const contact=getSupContact(o['ספק']);
@@ -633,15 +697,17 @@ async function sendGmail(o){
   const vat=total-sub;
   const greeting=contact?'שלום '+contact+',':'שלום רב,';
   const subj='הזמנת רכש '+o['מספר הזמנה']+' — '+o['פרויקט'];
+  const oid=o['מספר הזמנה'];
 
-  const emailHtml=`<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.8">
+  // HTML for preview in modal
+  const previewHtml=`<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.8">
     <p>${greeting}</p>
-    <p>מצו"ב הזמנת רכש מספר <b>${o['מספר הזמנה']}</b><br>
+    <p>מצו"ב הזמנת רכש מספר <b>${oid}</b><br>
     תאריך: ${o['תאריך']}<br>
     פרויקט: ${o['פרויקט']}${o['תחום']?'<br>תחום: '+o['תחום']:''}${o['תת תחום']?'<br>תת תחום: '+o['תת תחום']:''}</p>
     <table dir="rtl" border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;text-align:right">
       <thead><tr style="background:#3b82f6;color:#fff">
-        <th>מק"ט</th><th>תיאור</th><th>כמות</th><th>מחיר ליח׳</th><th>סה"כ</th>
+        <th>מק"ט</th><th>תיאור</th><th>כמות</th><th>מחיר</th><th>סה"כ</th>
       </tr></thead>
       <tbody>${items.map((it,i)=>`<tr style="background:${i%2?'#f8f9fa':'#fff'}">
         <td>${it.id||'—'}</td><td>${it.desc||''}</td><td style="text-align:center">${it.qty}</td>
@@ -654,48 +720,40 @@ async function sendGmail(o){
     <p>בברכה,<br>${S.user.name}<br>איזי</p>
   </div>`;
 
-  // Build MIME message
-  const mime=[
-    'Content-Type: text/html; charset=utf-8',
-    'MIME-Version: 1.0',
-    `To: ${email}`,
-    `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subj)))}?=`,
-    '',
-    emailHtml
-  ].join('\r\n');
+  // Plain text for Gmail compose URL
+  let body=greeting+'\n\nמצו"ב הזמנת רכש מספר '+oid+'\nתאריך: '+o['תאריך']+'\nפרויקט: '+o['פרויקט'];
+  if(o['תחום'])body+='\nתחום: '+o['תחום'];
+  if(o['תת תחום'])body+='\nתת תחום: '+o['תת תחום'];
+  body+='\n\n';
+  // Table header
+  body+='מק"ט\t\t| תיאור\t\t\t| כמות\t| מחיר\t| סה"כ\n';
+  body+='─'.repeat(60)+'\n';
+  items.forEach(it=>{
+    body+=(it.id||'—')+'\t| '+(it.desc||'').substring(0,20)+'\t| '+it.qty+'\t| '+cur(it.price||0)+'\t| '+cur(it.total||0)+'\n';
+  });
+  body+='─'.repeat(60)+'\n';
+  body+='סה"כ לפני מע"מ: '+cur(sub)+'\n';
+  body+='מע"מ 18%: '+cur(vat)+'\n';
+  body+='סה"כ כולל מע"מ: '+cur(total)+'\n';
+  body+='\nבברכה,\n'+S.user.name+'\nאיזי';
 
-  const raw=btoa(unescape(encodeURIComponent(mime))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const gmailUrl=`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
 
-  try{
-    const r=await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send',{
-      method:'POST',headers:{'Authorization':'Bearer '+S.gToken,'Content-Type':'application/json'},
-      body:JSON.stringify({raw})
-    });
-    if(r.ok){
-      toast('✅ מייל נשלח ל-'+email+'!','success');
-      log('Gmail sent to '+email);
-    }else{
-      const err=await r.json().catch(()=>({}));
-      log('Gmail error: '+JSON.stringify(err));
-      // Fallback: open Gmail compose
-      toast('⚠️ שליחה ישירה נכשלה, נפתח Gmail...','error');
-      fallbackGmail(o,email,subj);
-    }
-  }catch(e){
-    log('Gmail exception: '+e.message);
-    toast('⚠️ נפתח Gmail...','error');
-    fallbackGmail(o,email,subj);
-  }
+  window._emailOid=oid;
+
+  openModal(`<h3>📧 מייל לספק — ${oid}</h3>
+    <div style="font-size:14px;margin-bottom:8px"><span style="color:var(--text2)">אל:</span> <b>${email||'לא נמצא'}</b></div>
+    <div style="font-size:14px;margin-bottom:12px"><span style="color:var(--text2)">נושא:</span> ${subj}</div>
+    <div style="background:#fff;color:#1a1a2e;padding:16px;border-radius:8px;max-height:300px;overflow-y:auto;direction:rtl;border:1px solid var(--border)">${previewHtml}</div>
+    <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
+      <button class="btn btn-success btn-full" onclick="window.open('${gmailUrl.replace(/'/g,"\\'")}','_blank');closeModal()">📧 שלח ב-Gmail</button>
+      <button class="btn btn-outline" onclick="doPdfDownload()" style="flex:1">📄 PDF</button>
+      <button class="btn btn-outline" onclick="closeModal()" style="flex:1">סגור</button>
+    </div>`);
 }
 
-function fallbackGmail(o,email,subj){
-  const items=getOrderItems(o);
-  const total=o['סהכ הזמנה כולל מעמ']||0;
-  const contact=getSupContact(o['ספק']);
-  let body=(contact?'שלום '+contact+',':'שלום רב,')+'\n\nהזמנת רכש '+o['מספר הזמנה']+'\nפרויקט: '+o['פרויקט']+'\n\n';
-  items.forEach(it=>{body+='- מק"ט: '+(it.id||'')+' | '+(it.desc||'')+' | כמות: '+it.qty+' | סה"כ: '+cur(it.total||0)+'\n';});
-  body+='\nסה"כ כולל מע"מ: '+cur(total)+'\n\nבברכה,\n'+S.user.name+'\nאיזי';
-  window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`,'_blank');
+function doPdfDownload(){
+  if(window._emailOid)makePDF(window._emailOid);
 }
 
 // VIEW ORDER
