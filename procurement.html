@@ -180,7 +180,12 @@ select:focus{outline:none;border-color:var(--accent)}select option{background:va
 <script>
 const CFG={SID:'1Xwbi3PlN2K9FfJea0sKC3pOk5XHxWVhe5KOuqkY5-yA',CID:'178709560097-9eur0mu87mfu762qpe8e8ibu9h08vvqc.apps.googleusercontent.com',KEY:'AIzaSyDePcH0mMB90U06NgjG6ywRelTvMMCn1Og',SCOPES:'https://www.googleapis.com/auth/spreadsheets',VAT:0.18,
   SH:{SUP:'ספקים',PROD:'מוצרים',BUD:'תקציב',ORD:'הזמנות רכש',APP:'הזמנות מאושרות'}};
-const USERS=[{username:'admin',password:'admin123',name:'אייל כהן',email:'ayal@mihlol.co.il',role:'admin',projects:null},{username:'roni',password:'roni123',name:'רוני לוי',role:'manager',projects:['נוף הגלעד 11','נוף הגלעד 18']},{username:'david',password:'david123',name:'דוד כהן',role:'manager',projects:['עדן 21','בזלת 16']},{username:'viewer1',password:'view123',name:'צופה',role:'viewer',projects:null}];
+const USERS=[
+  {username:'ayal',password:'Ezy@2026!',name:'אייל כהן',email:'ayal@mihlol.co.il',role:'admin',projects:null},
+  {username:'roni',password:'Roni@2026!',name:'רוני לוי',role:'manager',projects:['נוף הגלעד 11','נוף הגלעד 18']},
+  {username:'david',password:'David@2026!',name:'דוד כהן',role:'manager',projects:['עדן 21','בזלת 16']},
+  {username:'viewer',password:'View@2026!',name:'צופה',role:'viewer',projects:null},
+];
 
 const ORD_H=['מספר הזמנה','תאריך','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
 const APP_H=[...ORD_H,'מאשר','תאריך אישור'];
@@ -532,10 +537,10 @@ function showDebug(){
       <b>gAuth:</b> ${S.gAuth} | <b>Token:</b> ${S.gToken?S.gToken.slice(0,15)+'...':'NONE'}
     </div><button class="btn btn-outline btn-sm" onclick="closeModal()" style="margin-top:16px">סגור</button>`);}
 
-// ORDERS
+// ORDERS — admin sees all, others see only their own
 function renderOrders(el){
-  const orders=getAllOrders(),proj=getUserProj();
-  const f=S.user.role==='admin'||S.user.role==='viewer'?orders:orders.filter(o=>proj.includes(o['פרויקט']));
+  const orders=getAllOrders();
+  const f=S.user.role==='admin'?orders:orders.filter(o=>(o['יוצר']||'')===S.user.name);
   el.innerHTML=`<div class="fade-in"><div class="topbar"><h2>הזמנות רכש</h2>${S.user.role!=='viewer'?'<button class="btn btn-primary" onclick="navigate(\'neworder\')">➕ חדשה</button>':''}</div>
     ${!f.length?'<div class="card"><div class="empty-state"><div class="icon">📋</div><p>אין הזמנות</p></div></div>':`
     <div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table>
@@ -546,14 +551,15 @@ function renderOrders(el){
         <td><button class="btn btn-outline btn-sm" onclick="viewOrder('${o['מספר הזמנה']}')">👁</button>${S.user.role==='admin'?` <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o['מספר הזמנה']}')">🗑</button>`:''}</td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
 }
 
-// DELETE ORDER
+// DELETE ORDER — works from both orders and approve
 function deleteOrder(oid){
-  if(!confirm('למחוק הזמנה '+oid+'? לא ניתן לשחזר!'))return;
+  if(!confirm('למחוק הזמנה '+oid+'?'))return;
   const lo=getLO().filter(o=>o['מספר הזמנה']!==oid);saveLO(lo);
+  const la=getLA().filter(o=>o['מספר הזמנה']!==oid);saveLA(la);
   toast('הזמנה נמחקה','info');renderPage();
 }
 
-// APPROVE TAB — receipt with item+qty+price confirmation
+// APPROVE TAB — admin sees all pending, with delete option
 function renderApprove(el){
   const pending=getAllOrders().filter(o=>(o['סטטוס']||'')==='ממתין לאישור');
   el.innerHTML=`<div class="fade-in"><div class="topbar"><h2>✅ אישור הזמנות</h2></div>
@@ -563,8 +569,11 @@ function renderApprove(el){
         <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
           <div><div style="font-weight:700;font-size:16px">${o['מספר הזמנה']}</div>
             <div style="font-size:13px;color:var(--text2)">${o['ספק']||''} | ${o['פרויקט']||''} | ${o['תאריך']||''}</div></div>
-          <div style="font-size:13px;color:var(--text2)">יוצר: ${o['יוצר']||''}</div></div>
-        ${items.map((it,i)=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="font-size:13px;color:var(--text2)">יוצר: ${o['יוצר']||''}</div>
+            <button class="btn btn-outline btn-sm" onclick="deleteOrder('${o['מספר הזמנה']}')" style="color:var(--danger)">🗑</button>
+          </div></div>
+        ${items.length?items.map((it,i)=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div><input type="checkbox" id="ac_${o['מספר הזמנה']}_${i}" checked style="width:20px;height:20px;cursor:pointer;vertical-align:middle"> <span style="font-weight:600">${it.desc||''}</span></div>
             <div style="font-weight:700">${cur(it.total||0)}</div>
@@ -572,13 +581,12 @@ function renderApprove(el){
           <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--text2)">
             <div>מק״ט: ${it.id||'—'}</div>
             <div>מחיר: ${cur(it.price||0)}</div>
-            <div style="display:flex;align-items:center;gap:6px">כמות: ${it.qty} ← מאושר: <input type="number" id="aq_${o['מספר הזמנה']}_${i}" value="${it.qty}" min="0" style="width:60px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;text-align:center"></div>
+            <div style="display:flex;align-items:center;gap:6px">כמות: <input type="number" id="aq_${o['מספר הזמנה']}_${i}" value="${it.qty}" min="0" style="width:60px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;text-align:center"></div>
           </div>
-        </div>`).join('')}
+        </div>`).join(''):'<div style="padding:12px;color:var(--text3)">אין פריטים — כנראה הזמנה ריקה. אפשר למחוק.</div>'}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px">
           <div style="font-size:18px;font-weight:700">סה״כ: ${cur(o['סהכ הזמנה כולל מעמ']||o['סכום כולל מעמ']||0)}</div>
-          <div style="display:flex;gap:8px"><button class="btn btn-success" onclick="doApprove('${o['מספר הזמנה']}',${items.length})">✓ אשר</button>
-            <button class="btn btn-danger btn-sm" onclick="doReject('${o['מספר הזמנה']}')">✗ דחה</button></div></div></div>`;}).join('')}`}</div>`;
+          <div style="display:flex;gap:8px">${items.length?`<button class="btn btn-success" onclick="doApprove('${o['מספר הזמנה']}',${items.length})">✓ אשר</button>`:''}<button class="btn btn-danger btn-sm" onclick="doReject('${o['מספר הזמנה']}')">✗ דחה</button></div></div></div>`;}).join('')}`}</div>`;
 }
 
 async function doApprove(oid,n){
@@ -708,13 +716,13 @@ function sendGmail(o){
   const subj='הזמנת רכש '+o['מספר הזמנה']+' — '+o['פרויקט'];
   const oid=o['מספר הזמנה'];
 
-  // HTML for preview in modal
+  // Preview HTML
   const previewHtml=`<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.8">
     <p>${greeting}</p>
     <p>מצו"ב הזמנת רכש מספר <b>${oid}</b><br>
     תאריך: ${o['תאריך']}<br>
     פרויקט: ${o['פרויקט']}${o['תחום']?'<br>תחום: '+o['תחום']:''}${o['תת תחום']?'<br>תת תחום: '+o['תת תחום']:''}</p>
-    <table dir="rtl" border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;text-align:right">
+    <table dir="rtl" border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;text-align:right">
       <thead><tr style="background:#3b82f6;color:#fff">
         <th>מק"ט</th><th>תיאור</th><th>כמות</th><th>מחיר</th><th>סה"כ</th>
       </tr></thead>
@@ -725,45 +733,39 @@ function sendGmail(o){
     </table>
     <p style="margin-top:12px">סה"כ לפני מע"מ: <b>${cur(sub)}</b><br>
     מע"מ 18%: <b>${cur(vat)}</b><br>
-    <span style="font-size:18px;color:#3b82f6"><b>סה"כ כולל מע"מ: ${cur(total)}</b></span></p>
+    <span style="font-size:16px;color:#3b82f6"><b>סה"כ כולל מע"מ: ${cur(total)}</b></span></p>
     <p>בברכה,<br>${S.user.name}<br>איזי</p>
   </div>`;
 
-  // Plain text for Gmail compose URL
+  // Plain text body for mailto
   let body=greeting+'\n\nמצו"ב הזמנת רכש מספר '+oid+'\nתאריך: '+o['תאריך']+'\nפרויקט: '+o['פרויקט'];
   if(o['תחום'])body+='\nתחום: '+o['תחום'];
   if(o['תת תחום'])body+='\nתת תחום: '+o['תת תחום'];
-  body+='\n\n';
-  // Table header
-  body+='מק"ט\t\t| תיאור\t\t\t| כמות\t| מחיר\t| סה"כ\n';
-  body+='─'.repeat(60)+'\n';
+  body+='\n\nפירוט:\n';
   items.forEach(it=>{
-    body+=(it.id||'—')+'\t| '+(it.desc||'').substring(0,20)+'\t| '+it.qty+'\t| '+cur(it.price||0)+'\t| '+cur(it.total||0)+'\n';
+    body+='- מק"ט: '+(it.id||'—')+' | '+(it.desc||'')+' | כמות: '+it.qty+' | מחיר: '+cur(it.price||0)+' | סה"כ: '+cur(it.total||0)+'\n';
   });
-  body+='─'.repeat(60)+'\n';
-  body+='סה"כ לפני מע"מ: '+cur(sub)+'\n';
-  body+='מע"מ 18%: '+cur(vat)+'\n';
-  body+='סה"כ כולל מע"מ: '+cur(total)+'\n';
-  body+='\nבברכה,\n'+S.user.name+'\nאיזי';
+  body+='\nסה"כ לפני מע"מ: '+cur(sub)+'\nמע"מ 18%: '+cur(vat)+'\nסה"כ כולל מע"מ: '+cur(total);
+  body+='\n\nבברכה,\n'+S.user.name+'\nאיזי';
 
-  const gmailUrl=`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  // mailto link (works on mobile — opens Gmail app!)
+  const mailtoLink='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
 
   window._emailOid=oid;
 
-  openModal(`<h3>📧 מייל לספק — ${oid}</h3>
-    <div style="font-size:14px;margin-bottom:8px"><span style="color:var(--text2)">אל:</span> <b>${email||'לא נמצא'}</b></div>
-    <div style="font-size:14px;margin-bottom:12px"><span style="color:var(--text2)">נושא:</span> ${subj}</div>
-    <div style="background:#fff;color:#1a1a2e;padding:16px;border-radius:8px;max-height:300px;overflow-y:auto;direction:rtl;border:1px solid var(--border)">${previewHtml}</div>
-    <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
-      <button class="btn btn-success btn-full" onclick="window.open('${gmailUrl.replace(/'/g,"\\'")}','_blank');closeModal()">📧 שלח ב-Gmail</button>
-      <button class="btn btn-outline" onclick="doPdfDownload()" style="flex:1">📄 PDF</button>
-      <button class="btn btn-outline" onclick="closeModal()" style="flex:1">סגור</button>
+  openModal(`<h3>📧 מייל — ${oid}</h3>
+    <div style="font-size:14px;margin-bottom:8px"><b>אל:</b> ${email||'לא נמצא'}</div>
+    <div style="background:#fff;color:#1a1a2e;padding:12px;border-radius:8px;max-height:250px;overflow-y:auto;direction:rtl;border:1px solid var(--border);font-size:13px">${previewHtml}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+      <a href="${mailtoLink}" class="btn btn-success btn-full" style="text-decoration:none;text-align:center" onclick="setTimeout(()=>closeModal(),500)">📧 שלח מייל</a>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline" onclick="doPdfDownload()" style="flex:1">📄 PDF</button>
+        <button class="btn btn-outline" onclick="closeModal()" style="flex:1">סגור</button>
+      </div>
     </div>`);
 }
 
-function doPdfDownload(){
-  if(window._emailOid)makePDF(window._emailOid);
-}
+function doPdfDownload(){if(window._emailOid)makePDF(window._emailOid);}
 
 // VIEW ORDER
 function viewOrder(oid){const o=getAllOrders().find(x=>x['מספר הזמנה']===oid);if(!o)return;const items=getOrderItems(o);
