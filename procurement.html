@@ -392,8 +392,7 @@ function buildNav(){
   ];
   mn.innerHTML=mobPages.filter(p=>PAGES.find(x=>x.id===p.id)?.roles.includes(S.user.role)).map(p=>
     `<div class="mob-tab ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')">
-      <div class="ico">${p.icon}</div><div>${p.label}${p.id==='approve'&&pn>0?' ('+pn+')':''}</div></div>`).join('')
-    +`<div class="mob-tab" onclick="handleGoogleAuth()"><div class="ico">${S.gAuth?'🟢':'🔴'}</div><div>Google</div></div>`;}
+      <div class="ico">${p.icon}</div><div>${p.label}${p.id==='approve'&&pn>0?' ('+pn+')':''}</div></div>`).join('');}
 }
 function navigate(p){S.page=p;buildNav();renderPage();document.getElementById('sidebar').classList.remove('open');}
 function renderPage(){const m=document.getElementById('mainContent');({dashboard:renderDashboard,orders:renderOrders,approve:renderApprove,neworder:renderNewOrder,suppliers:renderSuppliers,products:renderProducts,budget:renderBudget})[S.page]?.(m);}
