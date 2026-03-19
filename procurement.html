@@ -188,7 +188,7 @@ let USERS=[
   {username:'viewer',password:'View@2026!',name:'צופה',role:'viewer'},
 ];
 
-const ORD_H=['מספר הזמנה','תאריך','שעה','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
+const ORD_H=['מספר הזמנה','תאריך','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
 const APP_H=[...ORD_H,'מאשר','תאריך אישור'];
 
 let S={user:null,page:'dashboard',gAuth:false,gToken:null,data:{suppliers:[],products:[],budget:[],projects:[],orders:[],approvedOrders:[],suppH:[],prodH:[],budH:[],ordH:[],appH:[],budgetRaw:[]},syncing:false,lastSync:null,selectedProject:'',dbg:[]};
@@ -319,8 +319,7 @@ let budgetDrill=null; // null=show domains, 'אינסטלציה'=show sub-domain
 function fmt(n){return(parseFloat(n)||0).toLocaleString('he-IL',{minimumFractionDigits:0,maximumFractionDigits:0});}
 function cur(n){return '₪'+fmt(n);}
 function genId(){const d=new Date();return`PO-${d.getFullYear().toString().slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;}
-function today(){return new Date().toLocaleDateString('he-IL');}
-function nowTime(){return new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});}
+function today(){const d=new Date();return d.toLocaleDateString('he-IL')+' '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});}
 function toast(m,t='info'){const c=document.getElementById('toastContainer'),el=document.createElement('div');el.className='toast toast-'+t;el.textContent=m;c.appendChild(el);setTimeout(()=>{el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(()=>el.remove(),300);},5000);}
 function showLoad(m){let e=document.getElementById('lo');if(!e){e=document.createElement('div');e.id='lo';e.className='loading-overlay';document.body.appendChild(e);}e.innerHTML=`<div class="spinner"></div><div style="color:var(--text2)">${m}</div>`;e.style.display='flex';}
 function hideLoad(){const e=document.getElementById('lo');if(e)e.style.display='none';}
@@ -669,7 +668,7 @@ async function doApprove(oid,n){
   if(S.gAuth&&S.gToken){try{
     const ex=await shRead(CFG.SH.APP).catch(()=>[]);if(!ex.length)await shWrite(CFG.SH.APP,[APP_H]);
     const rows=approved.map(it=>APP_H.map(h=>{switch(h){
-      case 'מספר הזמנה':return oid;case 'תאריך':return o['תאריך'];case 'שעה':return o['שעה']||nowTime();case 'ספק':return o['ספק'];case 'פרויקט':return o['פרויקט'];
+      case 'מספר הזמנה':return oid;case 'תאריך':return o['תאריך'];case 'ספק':return o['ספק'];case 'פרויקט':return o['פרויקט'];
       case 'תחום':return o['תחום']||'';case 'תת תחום':return o['תת תחום']||'';case 'יוצר':return o['יוצר'];case 'סטטוס':return 'מאושר';
       case 'מקט':return it.id||'';case 'תיאור מוצר':return it.desc||'';case 'כמות':return String(it.approvedQty);
       case 'מחיר ליחידה':return String(it.approvedPrice);case 'סהכ שורה':return String(it.total);
@@ -750,11 +749,11 @@ async function submitOrder(){
   oi.forEach(it=>{if(!it.productId)return;const l=(parseFloat(it.price)||0)*(parseInt(it.qty)||0);sub+=l;
     items.push({id:it.productId==='custom'?'חופשי':it.productId,desc:it.desc||it.productId,qty:parseInt(it.qty),price:parseFloat(it.price),total:l});});
   const vat=sub*CFG.VAT,total=sub+vat,oid=genId();
-  const order={'מספר הזמנה':oid,'תאריך':today(),'שעה':nowTime(),'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':subDom,'יוצר':S.user.name,'סטטוס':'ממתין לאישור','סהכ הזמנה לפני מעמ':sub,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
+  const order={'מספר הזמנה':oid,'תאריך':today(),'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':subDom,'יוצר':S.user.name,'סטטוס':'ממתין לאישור','סהכ הזמנה לפני מעמ':sub,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
 
   showLoad('שומר...');let ok=false;
   if(S.gAuth&&S.gToken){try{const ex=await shRead(CFG.SH.ORD).catch(()=>[]);if(!ex.length)await shWrite(CFG.SH.ORD,[ORD_H]);
-    const rows=items.map(it=>ORD_H.map(h=>{switch(h){case 'מספר הזמנה':return oid;case 'תאריך':return today();case 'שעה':return nowTime();case 'ספק':return sup;case 'פרויקט':return proj;
+    const rows=items.map(it=>ORD_H.map(h=>{switch(h){case 'מספר הזמנה':return oid;case 'תאריך':return today();case 'ספק':return sup;case 'פרויקט':return proj;
       case 'תחום':return dom;case 'תת תחום':return subDom;case 'יוצר':return S.user.name;case 'סטטוס':return 'ממתין לאישור';case 'מקט':return it.id;case 'תיאור מוצר':return it.desc;
       case 'כמות':return String(it.qty);case 'מחיר ליחידה':return String(it.price);case 'סהכ שורה':return String(it.total);
       case 'סהכ הזמנה לפני מעמ':return String(sub);case 'מעמ':return String(vat);case 'סהכ הזמנה כולל מעמ':return String(total);case 'הערות':return notes;default:return '';}}));
