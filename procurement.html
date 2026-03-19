@@ -188,7 +188,7 @@ let USERS=[
   {username:'viewer',password:'View@2026!',name:'צופה',role:'viewer'},
 ];
 
-const ORD_H=['מספר הזמנה','תאריך','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
+const ORD_H=['מספר הזמנה','תאריך','שעה','ספק','פרויקט','תחום','תת תחום','יוצר','סטטוס','מקט','תיאור מוצר','כמות','מחיר ליחידה','סהכ שורה','סהכ הזמנה לפני מעמ','מעמ','סהכ הזמנה כולל מעמ','הערות'];
 const APP_H=[...ORD_H,'מאשר','תאריך אישור'];
 
 let S={user:null,page:'dashboard',gAuth:false,gToken:null,data:{suppliers:[],products:[],budget:[],projects:[],orders:[],approvedOrders:[],suppH:[],prodH:[],budH:[],ordH:[],appH:[],budgetRaw:[]},syncing:false,lastSync:null,selectedProject:'',dbg:[]};
@@ -259,23 +259,35 @@ async function syncData(sl=true){
     if(ps.size===0)['נוף הגלעד 11','נוף הגלעד 18','נוף הדגן אלון מורה','עדן 21','בזלת 16','גבעת סלעית מחולה','האופק 32 ירוחם','האופק 36 ירוחם','צורים'].forEach(p=>ps.add(p));
     S.data.projects=[...ps];log('Projects: '+S.data.projects.join(', '));
 
-    // Load users from "משתמשים" sheet if exists
+    // Load users from "משתמשים" sheet
     try{
       const uR=await shRead('משתמשים').catch(()=>[]);
       if(uR.length>1){
-        const uParsed=parse(uR);
-        if(uParsed.rows.length){
-          USERS=uParsed.rows.map(r=>({
-            username:fc(r,['שם משתמש','username','user'])||'',
-            password:fc(r,['סיסמה','סיסמא','password'])||'',
-            name:fc(r,['שם','name','שם מלא'])||'',
-            email:fc(r,['מייל','email'])||'',
-            role:fc(r,['תפקיד','role'])||'viewer'
-          })).filter(u=>u.username&&u.password);
-          log('Users from Sheets: '+USERS.length);
+        const uHeaders=uR[0].map(h=>(h||'').trim());
+        log('Users headers: '+JSON.stringify(uHeaders));
+        const uRows=uR.slice(1).map(r=>{
+          const obj={};uHeaders.forEach((h,i)=>{obj[h]=(r[i]||'').trim();});return obj;
+        });
+        if(uRows.length){
+          log('Users[0] raw: '+JSON.stringify(uRows[0]));
+          USERS=uRows.map(r=>{
+            // Try exact column names from the sheet
+            const u=r['שם משתמש']||r['username']||'';
+            const p=r['סיסמה']||r['סיסמא']||r['password']||'';
+            const n=r['שם']||r['שם מלא']||r['name']||'';
+            const e=r['מייל']||r['email']||'';
+            const role=r['תפקיד']||r['role']||'viewer';
+            return{username:u,password:p,name:n,email:e,role};
+          }).filter(u=>u.username&&u.password);
+          log('Users loaded: '+USERS.map(u=>u.username+'/'+u.password.substring(0,3)+'...').join(', '));
+          // Save to localStorage for offline use
+          localStorage.setItem('proc_users',JSON.stringify(USERS));
         }
       }
-    }catch(e){log('Users sheet not found, using defaults');}
+    }catch(e){log('Users sheet error: '+e.message);}
+    if(USERS.length===0){try{const u=JSON.parse(localStorage.getItem('proc_users'));if(u&&u.length)USERS=u;}catch(e){}}
+    // Update current session with latest user data
+    if(S.user){const upd=USERS.find(u=>u.username===S.user.username);if(upd){S.user=upd;localStorage.setItem('proc_session',JSON.stringify(upd));}}
 
     S.lastSync=new Date().toISOString();saveState();
     if(sl){hideLoad();toast('✅ סנכרון','success');}
@@ -308,6 +320,7 @@ function fmt(n){return(parseFloat(n)||0).toLocaleString('he-IL',{minimumFraction
 function cur(n){return '₪'+fmt(n);}
 function genId(){const d=new Date();return`PO-${d.getFullYear().toString().slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;}
 function today(){return new Date().toLocaleDateString('he-IL');}
+function nowTime(){return new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});}
 function toast(m,t='info'){const c=document.getElementById('toastContainer'),el=document.createElement('div');el.className='toast toast-'+t;el.textContent=m;c.appendChild(el);setTimeout(()=>{el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(()=>el.remove(),300);},5000);}
 function showLoad(m){let e=document.getElementById('lo');if(!e){e=document.createElement('div');e.id='lo';e.className='loading-overlay';document.body.appendChild(e);}e.innerHTML=`<div class="spinner"></div><div style="color:var(--text2)">${m}</div>`;e.style.display='flex';}
 function hideLoad(){const e=document.getElementById('lo');if(e)e.style.display='none';}
@@ -339,8 +352,11 @@ function getSupContact(name){
 
 // AUTH
 function doLogin(){const u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
-  const user=USERS.find(x=>x.username===u&&x.password===p);if(!user){document.getElementById('loginError').style.display='block';return;}S.user=user;showApp();}
-function doLogout(){S.user=null;document.getElementById('appPage').style.display='none';document.getElementById('loginPage').style.display='flex';
+  const user=USERS.find(x=>x.username===u&&x.password===p);
+  if(!user){document.getElementById('loginError').style.display='block';return;}
+  S.user=user;localStorage.setItem('proc_session',JSON.stringify(user));showApp();}
+function doLogout(){S.user=null;localStorage.removeItem('proc_session');
+  document.getElementById('appPage').style.display='none';document.getElementById('loginPage').style.display='flex';
   document.getElementById('loginUser').value='';document.getElementById('loginPass').value='';document.getElementById('loginError').style.display='none';}
 function showApp(){document.getElementById('loginPage').style.display='none';document.getElementById('appPage').style.display='flex';
   document.getElementById('uA').textContent=S.user.name.charAt(0);document.getElementById('uN').textContent=S.user.name;
@@ -398,8 +414,9 @@ function navigate(p){S.page=p;buildNav();renderPage();document.getElementById('s
 function renderPage(){const m=document.getElementById('mainContent');({dashboard:renderDashboard,orders:renderOrders,approve:renderApprove,neworder:renderNewOrder,suppliers:renderSuppliers,products:renderProducts,budget:renderBudget})[S.page]?.(m);}
 
 function getUserProj(){return S.data.projects;}
-function getAllOrders(){const m=new Map();(S.data.orders||[]).forEach(r=>{const id=r['מספר הזמנה'];if(!id)return;if(!m.has(id))m.set(id,{...r,_items:[]});m.get(id)._items.push(r);});
-  getLO().forEach(o=>{const id=o['מספר הזמנה'];if(id)m.set(id,o);});return[...m.values()];}
+function getAllOrders(){const m=new Map();const del=getDeletedIds();
+  (S.data.orders||[]).forEach(r=>{const id=r['מספר הזמנה'];if(!id||del.includes(id))return;if(!m.has(id))m.set(id,{...r,_items:[]});m.get(id)._items.push(r);});
+  getLO().forEach(o=>{const id=o['מספר הזמנה'];if(id&&!del.includes(id))m.set(id,o);});return[...m.values()];}
 function getOrderItems(o){if(o.items&&Array.isArray(o.items))return o.items;if(o._items)return o._items.map(r=>({id:r['מקט']||'',desc:r['תיאור מוצר']||'',qty:parseInt(r['כמות'])||0,price:parseFloat(r['מחיר ליחידה'])||0,total:parseFloat(r['סהכ שורה'])||0}));
   try{return JSON.parse(o['פריטים']||'[]');}catch(e){return[];}}
 // ביצוע — רק מגיליון הזמנות מאושרות, סכום כל שורה (עמודה סהכ)
@@ -539,6 +556,7 @@ function renderDashboard(el){
 
   el.innerHTML=`<div class="fade-in"><div class="topbar"><h2>דאשבורד</h2>
     <div class="google-status" onclick="handleGoogleAuth()"><div class="dot ${S.gAuth?'dot-green':'dot-red'}"></div>${S.gAuth?'Google ✅':'🔗 התחבר'}</div>
+    <button class="btn btn-outline btn-sm" onclick="doLogout()">⏻ יציאה</button>
     <button class="btn btn-outline btn-sm" onclick="syncData()">🔄</button>${S.user.role==='admin'?'<button class="btn btn-outline btn-sm" onclick="showDebug()">🐛</button>':''}</div>
     <div class="filter-bar">
       <label style="font-weight:600">פרויקט:</label><select onchange="S.selectedProject=this.value;selectedDomain='';expandedSub='';renderPage()">${proj.map(p=>`<option value="${p}" ${p===sp?'selected':''}>${p}</option>`).join('')}</select>
@@ -588,17 +606,19 @@ function renderOrders(el){
         <td><button class="btn btn-outline btn-sm" onclick="viewOrder('${o['מספר הזמנה']}')">👁</button>${S.user.role==='admin'?` <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o['מספר הזמנה']}')">🗑</button>`:''}</td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
 }
 
-// DELETE ORDER — works for both local and sheets orders
+// DELETE ORDER — permanent, won't come back from sync
+function getDeletedIds(){try{return JSON.parse(localStorage.getItem('proc_deleted'))||[];}catch(e){return[];}}
 function deleteOrder(oid){
   if(!confirm('למחוק הזמנה '+oid+'?'))return;
-  // Remove from localStorage
+  // Add to permanent deleted list
+  const del=getDeletedIds();if(!del.includes(oid))del.push(oid);
+  localStorage.setItem('proc_deleted',JSON.stringify(del));
+  // Remove from all sources
   saveLO(getLO().filter(o=>o['מספר הזמנה']!==oid));
   saveLA(getLA().filter(o=>o['מספר הזמנה']!==oid));
-  // Remove from in-memory sheets data
   S.data.orders=(S.data.orders||[]).filter(o=>o['מספר הזמנה']!==oid);
   S.data.approvedOrders=(S.data.approvedOrders||[]).filter(o=>o['מספר הזמנה']!==oid);
-  saveState();
-  toast('✅ הזמנה נמחקה','success');renderPage();
+  saveState();toast('✅ נמחק','success');renderPage();
 }
 
 // APPROVE TAB — each user sees their own orders
@@ -649,7 +669,7 @@ async function doApprove(oid,n){
   if(S.gAuth&&S.gToken){try{
     const ex=await shRead(CFG.SH.APP).catch(()=>[]);if(!ex.length)await shWrite(CFG.SH.APP,[APP_H]);
     const rows=approved.map(it=>APP_H.map(h=>{switch(h){
-      case 'מספר הזמנה':return oid;case 'תאריך':return o['תאריך'];case 'ספק':return o['ספק'];case 'פרויקט':return o['פרויקט'];
+      case 'מספר הזמנה':return oid;case 'תאריך':return o['תאריך'];case 'שעה':return o['שעה']||nowTime();case 'ספק':return o['ספק'];case 'פרויקט':return o['פרויקט'];
       case 'תחום':return o['תחום']||'';case 'תת תחום':return o['תת תחום']||'';case 'יוצר':return o['יוצר'];case 'סטטוס':return 'מאושר';
       case 'מקט':return it.id||'';case 'תיאור מוצר':return it.desc||'';case 'כמות':return String(it.approvedQty);
       case 'מחיר ליחידה':return String(it.approvedPrice);case 'סהכ שורה':return String(it.total);
@@ -730,11 +750,11 @@ async function submitOrder(){
   oi.forEach(it=>{if(!it.productId)return;const l=(parseFloat(it.price)||0)*(parseInt(it.qty)||0);sub+=l;
     items.push({id:it.productId==='custom'?'חופשי':it.productId,desc:it.desc||it.productId,qty:parseInt(it.qty),price:parseFloat(it.price),total:l});});
   const vat=sub*CFG.VAT,total=sub+vat,oid=genId();
-  const order={'מספר הזמנה':oid,'תאריך':today(),'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':subDom,'יוצר':S.user.name,'סטטוס':'ממתין לאישור','סהכ הזמנה לפני מעמ':sub,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
+  const order={'מספר הזמנה':oid,'תאריך':today(),'שעה':nowTime(),'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':subDom,'יוצר':S.user.name,'סטטוס':'ממתין לאישור','סהכ הזמנה לפני מעמ':sub,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
 
   showLoad('שומר...');let ok=false;
   if(S.gAuth&&S.gToken){try{const ex=await shRead(CFG.SH.ORD).catch(()=>[]);if(!ex.length)await shWrite(CFG.SH.ORD,[ORD_H]);
-    const rows=items.map(it=>ORD_H.map(h=>{switch(h){case 'מספר הזמנה':return oid;case 'תאריך':return today();case 'ספק':return sup;case 'פרויקט':return proj;
+    const rows=items.map(it=>ORD_H.map(h=>{switch(h){case 'מספר הזמנה':return oid;case 'תאריך':return today();case 'שעה':return nowTime();case 'ספק':return sup;case 'פרויקט':return proj;
       case 'תחום':return dom;case 'תת תחום':return subDom;case 'יוצר':return S.user.name;case 'סטטוס':return 'ממתין לאישור';case 'מקט':return it.id;case 'תיאור מוצר':return it.desc;
       case 'כמות':return String(it.qty);case 'מחיר ליחידה':return String(it.price);case 'סהכ שורה':return String(it.total);
       case 'סהכ הזמנה לפני מעמ':return String(sub);case 'מעמ':return String(vat);case 'סהכ הזמנה כולל מעמ':return String(total);case 'הערות':return notes;default:return '';}}));
@@ -892,11 +912,18 @@ function handleGoogleAuth(){
 function disconnectGoogle(){S.gToken=null;S.gAuth=false;saveState();closeModal();toast('Google מנותק','info');buildNav();renderPage();}
 
 function init(){
-  // Clear old user sessions — always require login
-  localStorage.removeItem('pu4');localStorage.removeItem('proc_user');localStorage.removeItem('procurement_user');
-  S.user=null;
   loadState();checkOAuth();if(S.gToken)ensureGAuth();
-  // Always show login page
+  // Load cached users from Sheets (saved during last sync)
+  try{const u=JSON.parse(localStorage.getItem('proc_users'));if(u&&u.length)USERS=u;}catch(e){}
+  // Restore session if exists
+  try{const sess=JSON.parse(localStorage.getItem('proc_session'));
+    if(sess&&sess.username){
+      // Verify user still exists in USERS list
+      const found=USERS.find(u=>u.username===sess.username);
+      if(found){S.user=found;showApp();return;}
+    }
+  }catch(e){}
+  // No session — show login
   document.getElementById('loginPage').style.display='flex';
   document.getElementById('appPage').style.display='none';
   document.getElementById('loginPass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
