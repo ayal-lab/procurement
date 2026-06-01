@@ -285,8 +285,8 @@ function updHdr(){document.getElementById('uN').textContent=S.user?.name||S.user
   document.getElementById('uR').textContent=S.user?.role||'';
   document.getElementById('gB').innerHTML=`<span class="hdot ${S.gAuth?'dg':'dr'}"></span>G`;}
 
-const PG=[{id:'dash',icon:'📊',label:'דאשבורד'},{id:'ord',icon:'📋',label:'הזמנות'},{id:'new',icon:'➕',label:'חדשה'},
-  {id:'appr',icon:'✅',label:'אישור'},{id:'bud',icon:'💰',label:'תקציב'},{id:'sup',icon:'🏢',label:'ספקים'},{id:'prod',icon:'📦',label:'מוצרים'}];
+const PG=[{id:'dash',icon:'📊',label:'דאשבורד'},{id:'ord',icon:'📋',label:'הזמנות'},{id:'appr',icon:'✅',label:'אישור'},
+  {id:'new',icon:'➕',label:'חדשה'},{id:'bud',icon:'💰',label:'תקציב'},{id:'sup',icon:'🏢',label:'ספקים'},{id:'prod',icon:'📦',label:'מוצרים'}];
 function buildNav(){const pn=allOrders().filter(o=>(o['סטטוס']||'')==='ממתין לאישור').length;
   document.getElementById('BN').innerHTML=PG.map(p=>
     `<div class="bt ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')"><div class="bi">${p.icon}</div><div>${p.label}</div>
@@ -296,9 +296,29 @@ function render(){const m=document.getElementById('MC');({dash:rDash,ord:rOrd,ne
 
 // ===== DASHBOARD =====
 let selDom='';
+function getBudgetAlerts(proj){
+  const doms=domSummary(proj),alerts=[];
+  const acked=JSON.parse(localStorage.getItem('ez_alerts')||'{}');
+  doms.forEach(d=>{const u=appTotal(proj,d.name),p=d.budget>0?Math.round(u/d.budget*100):0;
+    [50,80,100].forEach(th=>{if(p>=th){const key=proj+'_'+d.name+'_'+th;
+      if(!acked[key])alerts.push({domain:d.name,pct:p,threshold:th,key,budget:d.budget,used:u});}});});
+  return alerts;}
+function ackAlert(key){const a=JSON.parse(localStorage.getItem('ez_alerts')||'{}');a[key]=true;localStorage.setItem('ez_alerts',JSON.stringify(a));render();}
+
 function rDash(el){
   const proj=getProjs(),sp=S.sp||proj[0]||'',doms=domSummary(sp),sd=selDom;
   const my=getMyOrders(),myP=my.filter(o=>(o['סטטוס']||'')==='ממתין לאישור'),myA=my.filter(o=>['מאושר','התקבל'].includes(o['סטטוס']));
+
+  // Budget alerts
+  const alerts=getBudgetAlerts(sp);
+  let alertHtml=alerts.map(a=>{
+    const bg=a.threshold>=100?'var(--rds)':a.threshold>=80?'var(--ors)':'var(--bls)';
+    const clr=a.threshold>=100?'var(--rd)':a.threshold>=80?'var(--or)':'var(--bl)';
+    return`<div style="background:${bg};border:1px solid ${clr};border-radius:var(--r);padding:10px;margin-bottom:8px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <div>⚠️ <b>${a.domain}</b> — <b style="color:${clr}">${a.pct}%</b> (סף ${a.threshold}%)</div>
+        <button class="btn bo bs" onclick="ackAlert('${a.key}')">✓ אישור</button></div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:3px">תקציב: ${cur(a.budget)} | בוצע: ${cur(a.used)}</div></div>`;}).join('');
 
   // Build budget section
   let bHtml='';
@@ -356,6 +376,7 @@ function rDash(el){
   el.innerHTML=`<div class="fltr">
     <select onchange="S.sp=this.value;selDom='';render()">${proj.map(p=>`<option value="${p}" ${p===sp?'selected':''}>${p}</option>`).join('')}</select>
     <select onchange="selDom=this.value;render()"><option value="">כל התחומים</option>${doms.map(d=>`<option value="${d.name}" ${sd===d.name?'selected':''}>${d.name}</option>`).join('')}</select></div>
+    ${alertHtml}
     ${bHtml}
     <div class="stats">
       <div class="st bl"><div class="st-v">${my.length}</div><div class="st-l">הזמנות</div></div>
