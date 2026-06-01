@@ -237,7 +237,7 @@ function getDeleted(){try{return JSON.parse(localStorage.getItem('ez_del'))||[];
 // ============================================================
 function googleLogin(){
   const r=window.location.origin+window.location.pathname;
-  window.location.href=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${CFG.CID}&redirect_uri=${encodeURIComponent(r)}&response_type=token&scope=${encodeURIComponent(CFG.SCOPES+' email profile')}&prompt=select_account`;
+  window.location.href=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${CFG.CID}&redirect_uri=${encodeURIComponent(r)}&response_type=token&scope=${encodeURIComponent(CFG.SCOPES+' https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile')}&prompt=select_account`;
 }
 
 function checkOAuth(){
@@ -270,8 +270,26 @@ async function ensureAuth(){
   S.gToken=null;S.gAuth=false;save();return false;
 }
 
-function tryLogin(email,name){
-  // Check against users list (from Sheets or cache)
+async function tryLogin(email,name){
+  // First, try to load users from Sheets directly
+  try{
+    const uR=await shRead(CFG.SH.USERS).catch(()=>[]);
+    if(uR.length>1){
+      const hdr=uR[0].map(h=>(h||'').trim());
+      const rows=uR.slice(1).map(r=>{const o={};hdr.forEach((h,i)=>{o[h]=(r[i]||'').trim();});return o;});
+      S.data.users=rows.map(r=>({
+        email:r['מייל']||r['email']||'',
+        name:r['שם']||r['name']||'',
+        role:r['תפקיד']||r['role']||'viewer',
+        projects:Object.entries(r).filter(([k,v])=>k.includes('פרויקט')&&v&&v!=='הכל').map(([k,v])=>v.trim()).filter(Boolean),
+        allProjects:Object.values(r).some(v=>v==='הכל')
+      })).filter(x=>x.email);
+      localStorage.setItem('ez_users',JSON.stringify(S.data.users));
+      log('Users loaded: '+S.data.users.map(u=>u.email).join(', '));
+    }
+  }catch(e){log('Users read err: '+e.message);}
+
+  // Fallback to cached users
   let users=S.data.users||[];
   if(!users.length){try{users=JSON.parse(localStorage.getItem('ez_users'))||[];}catch(e){}}
   
@@ -281,11 +299,10 @@ function tryLogin(email,name){
     localStorage.setItem('ez_session',JSON.stringify(S.user));
     showApp();
   } else {
-    // Show error
     const err=document.getElementById('authErr');
     err.style.display='block';
     err.textContent='המייל '+email+' לא מורשה. פנו למנהל המערכת.';
-    log('Unauthorized: '+email);
+    log('Unauthorized: '+email+' | Known emails: '+users.map(u=>u.email).join(', '));
   }
 }
 
@@ -369,7 +386,8 @@ async function syncData(showLoad=true){
         email:r['מייל']||r['email']||'',
         name:r['שם']||r['name']||'',
         role:r['תפקיד']||r['role']||'viewer',
-        projects:(r['פרויקטים']||r['projects']||'').split(',').map(x=>x.trim()).filter(Boolean)
+        projects:Object.entries(r).filter(([k,v])=>k.includes('פרויקט')&&v&&v!=='הכל').map(([k,v])=>v.trim()).filter(Boolean),
+        allProjects:Object.values(r).some(v=>v==='הכל')
       })).filter(x=>x.email);
       localStorage.setItem('ez_users',JSON.stringify(S.data.users));
       log('Users: '+S.data.users.map(u=>u.email).join(', '));
@@ -436,7 +454,7 @@ function getAllOrders(){const m=new Map(),del=getDeleted();
   getLO().forEach(o=>{const id=o['מספר הזמנה'];if(id&&!del.includes(id))m.set(id,o);});return[...m.values()];}
 function getOrderItems(o){if(o.items&&Array.isArray(o.items))return o.items;if(o._items)return o._items.map(r=>({id:r['מקט']||'',desc:r['תיאור מוצר']||r['תיאור']||'',qty:parseInt(r['כמות'])||0,price:parseFloat(r['מחיר ליחידה'])||0,total:parseFloat(r['סהכ שורה'])||0}));return[];}
 
-function getUserProjects(){if(!S.user)return S.data.projects;if(S.user.role==='admin'||S.user.role==='מנהל רכש')return S.data.projects;
+function getUserProjects(){if(!S.user||S.user.allProjects||S.user.role==='admin'||S.user.role==='מנהל רכש')return S.data.projects;
   return S.user.projects&&S.user.projects.length?S.user.projects:S.data.projects;}
 function getMyOrders(){const all=getAllOrders();if(S.user?.role==='admin'||S.user?.role==='מנהל רכש')return all;
   return all.filter(o=>(o['יוצר']||'')===S.user?.name||(o['יוצר']||'')===S.user?.googleName);}
