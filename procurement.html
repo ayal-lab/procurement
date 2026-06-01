@@ -271,38 +271,52 @@ async function ensureAuth(){
 }
 
 async function tryLogin(email,name){
+  log('tryLogin: email='+email);
   // First, try to load users from Sheets directly
+  let users=[];
   try{
-    const uR=await shRead(CFG.SH.USERS).catch(()=>[]);
+    log('Reading users sheet...');
+    const uR=await shRead(CFG.SH.USERS);
+    log('Users sheet rows: '+uR.length);
+    if(uR.length>0)log('Headers: '+JSON.stringify(uR[0]));
+    if(uR.length>1)log('Row1: '+JSON.stringify(uR[1]));
     if(uR.length>1){
       const hdr=uR[0].map(h=>(h||'').trim());
       const rows=uR.slice(1).map(r=>{const o={};hdr.forEach((h,i)=>{o[h]=(r[i]||'').trim();});return o;});
-      S.data.users=rows.map(r=>({
+      users=rows.map(r=>({
         email:r['מייל']||r['email']||'',
         name:r['שם']||r['name']||'',
         role:r['תפקיד']||r['role']||'viewer',
         projects:Object.entries(r).filter(([k,v])=>k.includes('פרויקט')&&v&&v!=='הכל').map(([k,v])=>v.trim()).filter(Boolean),
         allProjects:Object.values(r).some(v=>v==='הכל')
       })).filter(x=>x.email);
-      localStorage.setItem('ez_users',JSON.stringify(S.data.users));
-      log('Users loaded: '+S.data.users.map(u=>u.email).join(', '));
+      S.data.users=users;
+      localStorage.setItem('ez_users',JSON.stringify(users));
+      log('Parsed users: '+users.map(u=>u.email+'('+u.role+')').join(', '));
     }
-  }catch(e){log('Users read err: '+e.message);}
+  }catch(e){
+    log('Users sheet ERROR: '+e.message);
+    // Fallback to cached
+    try{users=JSON.parse(localStorage.getItem('ez_users'))||[];}catch(e2){}
+    log('Cached users: '+users.length);
+  }
 
-  // Fallback to cached users
-  let users=S.data.users||[];
-  if(!users.length){try{users=JSON.parse(localStorage.getItem('ez_users'))||[];}catch(e){}}
+  // Compare
+  log('Looking for: "'+email.toLowerCase()+'" in '+users.map(u=>'"'+u.email.toLowerCase()+'"').join(', '));
+  const found=users.find(u=>(u.email||'').toLowerCase().trim()===email.toLowerCase().trim());
   
-  const found=users.find(u=>(u.email||'').toLowerCase()===email.toLowerCase());
   if(found){
+    log('FOUND! role='+found.role);
     S.user={...found,googleName:name,googleEmail:email};
     localStorage.setItem('ez_session',JSON.stringify(S.user));
     showApp();
   } else {
+    log('NOT FOUND');
     const err=document.getElementById('authErr');
     err.style.display='block';
-    err.textContent='המייל '+email+' לא מורשה. פנו למנהל המערכת.';
-    log('Unauthorized: '+email+' | Known emails: '+users.map(u=>u.email).join(', '));
+    err.innerHTML='המייל <b>'+email+'</b> לא נמצא ברשימת המורשים.<br><br>'+
+      '<small style="color:#aaa">מיילים ברשימה: '+users.map(u=>u.email).join(', ')+'<br>'+
+      'לוג: לחצו F12 → Console</small>';
   }
 }
 
