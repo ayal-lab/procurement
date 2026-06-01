@@ -286,13 +286,13 @@ function updHdr(){document.getElementById('uN').textContent=S.user?.name||S.user
   document.getElementById('gB').innerHTML=`<span class="hdot ${S.gAuth?'dg':'dr'}"></span>G`;}
 
 const PG=[{id:'dash',icon:'📊',label:'דאשבורד'},{id:'ord',icon:'📋',label:'הזמנות'},{id:'new',icon:'➕',label:'חדשה'},
-  {id:'appr',icon:'✅',label:'אישור'},{id:'bud',icon:'💰',label:'תקציב'}];
+  {id:'appr',icon:'✅',label:'אישור'},{id:'bud',icon:'💰',label:'תקציב'},{id:'sup',icon:'🏢',label:'ספקים'},{id:'prod',icon:'📦',label:'מוצרים'}];
 function buildNav(){const pn=allOrders().filter(o=>(o['סטטוס']||'')==='ממתין לאישור').length;
   document.getElementById('BN').innerHTML=PG.map(p=>
     `<div class="bt ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')"><div class="bi">${p.icon}</div><div>${p.label}</div>
     ${p.id==='appr'&&pn?`<span class="bt-badge">${pn}</span>`:''}</div>`).join('');}
 function navigate(p){S.page=p;buildNav();render();}
-function render(){const m=document.getElementById('MC');({dash:rDash,ord:rOrd,new:rNew,appr:rAppr,bud:rBud})[S.page]?.(m);}
+function render(){const m=document.getElementById('MC');({dash:rDash,ord:rOrd,new:rNew,appr:rAppr,bud:rBud,sup:rSup,prod:rProd})[S.page]?.(m);}
 
 // ===== DASHBOARD =====
 let selDom='';
@@ -328,7 +328,16 @@ function rDash(el){
           <div class="i"><div class="v" style="color:${c}">${s.p}%</div><div class="l">ביצוע</div></div>
           <div class="i"><div class="v">${cur(s.u)}</div><div class="l">בוצע</div></div>
           <div class="i"><div class="v" style="color:${s.r<0?'var(--rd)':'var(--gn)'}">${cur(s.r)}</div><div class="l">יתרה</div></div></div>
-          <div class="prog"><div class="pf" style="width:${Math.min(s.p,100)}%;background:${c}"></div></div></div>`;}).join('')}</div>`;
+          <div class="prog"><div class="pf" style="width:${Math.min(s.p,100)}%;background:${c}"></div></div></div>`;}).join('')}
+    </div>
+    <div class="card"><div class="card-t">📊 ביצוע לפי תחום</div>
+      <svg viewBox="0 0 300 ${secs.length*36+10}" width="100%" style="max-height:260px">
+        ${secs.map((s,i)=>{const y=i*36+5,w=Math.max(s.p*2.2,2),c=s.p>90?'#ef4444':s.p>70?'#f59e0b':'#10b981';
+          return`<text x="295" y="${y+14}" text-anchor="end" fill="#94a3c0" font-size="11" font-family="Heebo">${s.n}</text>
+            <rect x="5" y="${y+18}" width="220" height="12" rx="3" fill="#2a3348"/>
+            <rect x="5" y="${y+18}" width="${Math.min(w,220)}" height="12" rx="3" fill="${c}" opacity="0.85"/>
+            <text x="228" y="${y+28}" fill="#94a3c0" font-size="9" font-family="Heebo">${s.p}%</text>`;}).join('')}
+      </svg></div>`;
   } else {
     const dd=doms.find(d=>d.name===sd);
     if(dd){const du=appTotal(sp,sd),dr=dd.budget-du,dp=dd.budget>0?Math.round(du/dd.budget*100):0;
@@ -530,14 +539,67 @@ function rBud(el){const proj=getProjs(),sp=S.sp||proj[0]||'',doms=domSummary(sp)
           <div class="i"><div class="v" style="color:${r<0?'var(--rd)':'var(--gn)'}">${cur(r)}</div><div class="l">יתרה</div></div></div>
           <div class="prog"><div class="pf" style="width:${Math.min(p,100)}%;background:${c}"></div></div></div>`;}).join('')}`;
   }else{const dm=doms.find(d=>d.name===dd);if(dm){const du=appTotal(sp,dd);
+    // Get approved rows for this domain
+    const appRows=(S.data.approved||[]).filter(r=>r['פרויקט']===sp&&r['תחום']===dd);
     ct=`<div class="card-t"><button class="btn bo bs" onclick="budDrill=null;render()">◂</button> ${dd} <span class="sub">${sp}</span></div>
       <div class="stats" style="margin-bottom:10px"><div class="st bl"><div class="st-v">${cur(dm.budget)}</div><div class="st-l">תקציב</div></div>
-        <div class="st gn"><div class="st-v">${cur(du)}</div><div class="st-l">ביצוע</div></div></div>
-      ${dm.subs.map(sub=>`<div class="brow"><div class="brow-n">${sub.sub}</div><div class="brow-d">
-        <div class="i"><div class="v">${cur(sub.amt)}</div><div class="l">תקציב</div></div>
-        <div class="i"><div class="v" style="color:var(--bl)">${dm.budget>0?Math.round(sub.amt/dm.budget*100):0}%</div><div class="l">מתחום</div></div></div></div>`).join('')}`;}}
+        <div class="st gn"><div class="st-v">${cur(du)}</div><div class="st-l">ביצוע</div></div>
+        <div class="st or"><div class="st-v">${cur(dm.budget-du)}</div><div class="st-l">יתרה</div></div>
+        <div class="st"><div class="st-v">${dm.budget>0?Math.round(du/dm.budget*100):0}%</div><div class="st-l">%</div></div></div>
+      ${dm.subs.map(sub=>{
+        const subRows=appRows.filter(r=>(r['תת תחום']||'כללי')===sub.sub);
+        const subUsed=subRows.reduce((s,r)=>s+rowAmt(r),0);
+        const subPct=sub.amt>0?Math.round(subUsed/sub.amt*100):0;
+        const sc=subPct>90?'var(--rd)':subPct>70?'var(--or)':'var(--gn)';
+        return`<div class="brow"><div class="brow-n">${sub.sub}</div><div class="brow-d">
+          <div class="i"><div class="v">${cur(sub.amt)}</div><div class="l">תקציב</div></div>
+          <div class="i"><div class="v" style="color:${sc}">${subPct}%</div><div class="l">ביצוע</div></div>
+          <div class="i"><div class="v">${cur(subUsed)}</div><div class="l">בוצע</div></div>
+          <div class="i"><div class="v" style="color:var(--bl)">${dm.budget>0?Math.round(sub.amt/dm.budget*100):0}%</div><div class="l">מתחום</div></div></div>
+          <div class="prog"><div class="pf" style="width:${Math.min(subPct,100)}%;background:${sc}"></div></div>
+          ${subRows.length?`<div style="margin-top:6px;padding:6px;background:var(--bg3);border-radius:6px;font-size:11px">
+            <div style="color:var(--tx3);margin-bottom:4px">${subRows.length} הזמנות:</div>
+            ${subRows.map(r=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--brd)">
+              <span>${r['מספר הזמנה']||''} | ${r['ספק']||''} | ${r['תיאור מוצר']||r['תיאור']||''}</span>
+              <b>${cur(rowAmt(r))}</b></div>`).join('')}</div>`:''}</div>`;}).join('')}`;}}
   el.innerHTML=`<div class="fltr"><select onchange="S.sp=this.value;budDrill=null;render()">${proj.map(p=>`<option value="${p}" ${p===sp?'selected':''}>${p}</option>`).join('')}</select></div>
     <div class="card">${ct}</div>`;}
+
+// ===== SUPPLIERS =====
+function rSup(el){
+  const sups=S.data.suppliers,nc=S.data.suppH[0]||'',ec=fh(S.data.suppH,['מייל','email']),
+    tc=fh(S.data.suppH,['טלפון','phone']),cc=fh(S.data.suppH,['איש קשר','contact']);
+  el.innerHTML=`<div class="card-t">🏢 ספקים <span class="sub">${sups.length}</span></div>
+    <div class="fg"><input type="text" placeholder="🔍 חיפוש ספק..." oninput="filterSup(this.value)"></div>
+    <div id="supList">${sups.map(s=>`<div class="card" style="padding:12px">
+      <div style="font-weight:700;font-size:14px">${s[nc]||''}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">
+        ${s[cc]?'👤 '+s[cc]+'<br>':''}${s[ec]?'📧 '+s[ec]+'<br>':''}${s[tc]?'📞 '+s[tc]:''}
+      </div></div>`).join('')}</div>`;}
+function filterSup(q){const list=document.getElementById('supList');if(!list)return;
+  const nc=S.data.suppH[0]||'';const ql=q.toLowerCase();
+  list.innerHTML=S.data.suppliers.filter(s=>(s[nc]||'').toLowerCase().includes(ql)).map(s=>{
+    const ec=fh(S.data.suppH,['מייל']),tc=fh(S.data.suppH,['טלפון']),cc=fh(S.data.suppH,['איש קשר']);
+    return`<div class="card" style="padding:12px"><div style="font-weight:700;font-size:14px">${s[nc]||''}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">${s[cc]?'👤 '+s[cc]+'<br>':''}${s[ec]?'📧 '+s[ec]+'<br>':''}${s[tc]?'📞 '+s[tc]:''}</div></div>`;}).join('');}
+
+// ===== PRODUCTS =====
+function rProd(el){
+  const prods=S.data.products,h=S.data.prodH;
+  const idC=fh(h,['מק_ט','מקט']),dC=fh(h,['תאור_מוצר','תיאור']),pC=fh(h,['מחיר ליחידה','מחיר']),sC=fh(h,['ספק']);
+  el.innerHTML=`<div class="card-t">📦 מוצרים <span class="sub">${prods.length}</span></div>
+    <div class="fg"><input type="text" placeholder="🔍 חיפוש מוצר..." oninput="filterProd(this.value)"></div>
+    <div id="prodList">${prods.slice(0,50).map(p=>`<div class="oi"><div style="display:flex;justify-content:space-between">
+      <div><b style="font-size:12px">${p[dC]||''}</b><br><span style="font-size:11px;color:var(--tx2)">מק״ט: ${p[idC]||''} | ספק: ${p[sC]||''}</span></div>
+      <b style="color:var(--gn)">${cur(parseFloat(p[pC])||0)}</b></div></div>`).join('')}
+    ${prods.length>50?`<div style="text-align:center;padding:10px;color:var(--tx3);font-size:12px">מציג 50 מתוך ${prods.length}. חפשו לסינון.</div>`:''}</div>`;}
+function filterProd(q){const list=document.getElementById('prodList');if(!list)return;
+  const h=S.data.prodH,idC=fh(h,['מק_ט','מקט']),dC=fh(h,['תאור_מוצר','תיאור']),pC=fh(h,['מחיר ליחידה','מחיר']),sC=fh(h,['ספק']);
+  const ql=q.toLowerCase();const filtered=S.data.products.filter(p=>(p[idC]||'').toLowerCase().includes(ql)||(p[dC]||'').toLowerCase().includes(ql)||(p[sC]||'').toLowerCase().includes(ql));
+  list.innerHTML=filtered.slice(0,50).map(p=>`<div class="oi"><div style="display:flex;justify-content:space-between">
+    <div><b style="font-size:12px">${p[dC]||''}</b><br><span style="font-size:11px;color:var(--tx2)">מק״ט: ${p[idC]||''} | ספק: ${p[sC]||''}</span></div>
+    <b style="color:var(--gn)">${cur(parseFloat(p[pC])||0)}</b></div></div>`).join('')
+    +(filtered.length>50?`<div style="text-align:center;padding:10px;color:var(--tx3);font-size:12px">${filtered.length} תוצאות</div>`:'');}
 
 // ===== EMAIL + PDF =====
 async function sendMail(o){
