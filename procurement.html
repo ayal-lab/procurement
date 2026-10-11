@@ -241,6 +241,8 @@ const fc=(o,ns)=>{for(const n of ns)if(o[n]!==undefined&&o[n]!=='')return o[n];f
 const fh=(h,ns)=>{for(const n of ns){const f=h.find(x=>x===n);if(f)return f;}for(const n of ns){const f=h.find(x=>x.includes(n));if(f)return f;}return h[0]||'';};
 const fmt=n=>(parseFloat(n)||0).toLocaleString('he-IL',{maximumFractionDigits:0});
 const cur=n=>'₪'+fmt(n);
+const fmt2=n=>(parseFloat(n)||0).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
+const cur2=n=>'₪'+fmt2(n);
 const gid=()=>{const d=new Date();return`PO-${d.getFullYear().toString().slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;};
 const now=()=>{const d=new Date();return d.toLocaleDateString('he-IL')+' '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});};
 const toast=(m,t='in')=>{const c=document.getElementById('TC'),el=document.createElement('div');el.className='toast t-'+({ok:'ok',er:'er'}[t]||'in');el.textContent=m;c.appendChild(el);setTimeout(()=>{el.remove();},3500);};
@@ -403,7 +405,7 @@ function rOrd(el){const f=getMyOrders();
       return`<div class="card" style="padding:12px;cursor:pointer" onclick="viewOrd('${o['מספר הזמנה']}')">
         <div style="display:flex;justify-content:space-between"><div><b style="font-size:13px">${o['מספר הזמנה']||''}</b><br><span style="font-size:11px;color:var(--tx2)">${o['ספק']||''} | ${o['פרויקט']||''}</span></div>
         <div style="text-align:left"><span class="badge ${bc}">${st}</span><br><span style="font-size:11px;color:var(--tx2)">${o['תאריך']||''}</span></div></div>
-        <div style="font-size:16px;font-weight:800;margin-top:4px">${cur(o['סהכ הזמנה כולל מעמ']||0)}</div></div>`;}).join('')}`}`;
+        <div style="font-size:16px;font-weight:800;margin-top:4px">${cur2(o['סהכ הזמנה כולל מעמ']||0)}</div></div>`;}).join('')}`}`;
 }
 
 function viewOrd(oid){const o=allOrders().find(x=>x['מספר הזמנה']===oid);if(!o)return;const items=orderItems(o);
@@ -413,9 +415,9 @@ function viewOrd(oid){const o=allOrders().find(x=>x['מספר הזמנה']===oid
       <div>📅 ${o['תאריך']||''}</div><div><span class="badge ${bc}">${st}</span></div>
       <div>🏢 ${o['ספק']||''}</div><div>📁 ${o['פרויקט']||''}</div>
       <div>👤 ${o['יוצר']||''}</div><div>${o['תחום']?'🏗 '+o['תחום']:''}</div></div>
-    ${items.map(it=>`<div class="oi"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${it.desc||it.id}</b><b>${cur(it.total||0)}</b></div>
-      <div style="font-size:11px;color:var(--tx2)">מק״ט: ${it.id} | כמות: ${it.qty} | מחיר: ${cur(it.price||0)}</div></div>`).join('')}
-    <div style="font-size:18px;font-weight:800;margin-top:8px">סה״כ: ${cur(o['סהכ הזמנה כולל מעמ']||0)}</div>
+    ${items.map(it=>`<div class="oi"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${it.desc||it.id}</b><b>${cur2(it.total||0)}</b></div>
+      <div style="font-size:11px;color:var(--tx2)">מק״ט: ${it.id} | כמות: ${it.qty} | מחיר: ${cur2(it.price||0)}</div></div>`).join('')}
+    <div style="font-size:18px;font-weight:800;margin-top:8px">סה״כ: ${cur2(o['סהכ הזמנה כולל מעמ']||0)}</div>
     <div class="br" style="flex-direction:column">
       <button class="btn bp" onclick="sendMail(allOrders().find(x=>x['מספר הזמנה']==='${oid}'))">📧 מייל + דרייב</button>
       <button class="btn bo" onclick="printOrder('${oid}')">🖨 הדפס/PDF</button>
@@ -458,19 +460,19 @@ function rOI(){const c=document.getElementById('OIC');if(!c)return;
       ${it.pid==='custom'?`<input type="text" placeholder="תיאור" value="${it.desc||''}" onchange="uOI(${i},'desc',this.value)" style="width:100%;margin-bottom:4px;padding:7px;background:var(--bg);border:1px solid var(--brd);border-radius:var(--r);color:var(--tx);font-size:13px">`:''}
       <div style="display:flex;gap:6px;align-items:center;font-size:12px">
         <span style="color:var(--tx2)">כמות:</span><input type="number" min="1" value="${it.qty}" onchange="uOI(${i},'qty',this.value)" style="width:55px;padding:5px;background:var(--bg);border:1px solid var(--brd);border-radius:6px;color:var(--tx);text-align:center;font-size:13px">
-        <span style="color:var(--tx2)">מחיר: ${cur(it.price)}</span>
-        <span style="margin-right:auto;font-weight:700">${cur(lt)}</span>
-        <span style="cursor:pointer;color:var(--rd)" onclick="remOI(${i})">✕</span></div></div>`;});
+        <span style="color:var(--tx2)">מחיר ₪:</span><input type="number" min="0" step="0.01" value="${it.price}" onchange="uOI(${i},'price',this.value)" style="width:80px;padding:5px;background:var(--bg);border:1px solid var(--brd);border-radius:6px;color:var(--tx);text-align:center;font-size:13px">
+        <span style="margin-right:auto;font-weight:700">${cur2(lt)}</span>
+        <button type="button" onclick="remOI(${i})" style="background:var(--rds);color:var(--rd);border:none;border-radius:6px;width:30px;height:30px;font-size:15px;cursor:pointer">✕</button></div></div>`;});
   c.innerHTML=html;uTot();
   if(q){const si=document.getElementById('pSrch');if(si){si.focus();si.setSelectionRange(q.length,q.length);}}}
 
 function uOI(i,f,v){oi[i][f]=v;if(f==='pid'&&v!=='custom'&&v!==''){const h=S.data.prodH,idC=fh(h,['מק_ט','מק_ס','מקט']),dC=fh(h,['תאור_מוצר','תיאור']),pC=fh(h,['מחיר ליחידה','מחיר']);
   const p=S.data.products.find(x=>(x[idC]||'')===v);if(p){oi[i].price=parseFloat(p[pC])||0;oi[i].desc=p[dC]||'';}}rOI();}
 function addOI(){oi.push({pid:'',qty:1,price:0,desc:''});rOI();}
-function remOI(i){if(oi.length<=1)return;oi.splice(i,1);rOI();}
+function remOI(i){if(oi.length<=1){oi[0]={pid:'',qty:1,price:0,desc:''};}else oi.splice(i,1);rOI();}
 function uTot(){let s=0;oi.forEach(it=>{s+=(parseFloat(it.price)||0)*(parseInt(it.qty)||0);});const v=s*C.VAT,t=s+v;
   const a=document.getElementById('oSb'),b=document.getElementById('oVt'),c=document.getElementById('oTt');
-  if(a)a.textContent=cur(s);if(b)b.textContent=cur(v);if(c)c.textContent=cur(t);}
+  if(a)a.textContent=cur2(s);if(b)b.textContent=cur2(v);if(c)c.textContent=cur2(t);}
 function updDom(){const p=document.getElementById('oP').value,sel=document.getElementById('oD');
   const bu=budForProj(p),ds=[...new Set(bu.map(b=>budDom(b)))].filter(Boolean);
   sel.innerHTML='<option value="">—</option>'+ds.map(s=>`<option value="${s}">${s}</option>`).join('');document.getElementById('oSD').innerHTML='<option value="">—</option>';}
@@ -512,12 +514,12 @@ function rAppr(el){
         <div style="font-size:11px;color:var(--tx2);text-align:left">${o['תאריך']||''}<br>👤 ${o['יוצר']||''}</div></div>
       ${items.length?items.map((it,i)=>`<div class="oi"><div style="display:flex;justify-content:space-between"><div>
         <input type="checkbox" id="ac_${o['מספר הזמנה']}_${i}" checked style="width:16px;height:16px;vertical-align:middle"> <b style="font-size:12px">${it.desc||''}</b></div>
-        <b style="font-size:12px">${cur(it.total||0)}</b></div>
-        <div style="font-size:11px;color:var(--tx2);margin-top:3px">מק״ט: ${it.id} | מחיר: ${cur(it.price||0)} | כמות: 
+        <b style="font-size:12px">${cur2(it.total||0)}</b></div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:3px">מק״ט: ${it.id} | מחיר: ${cur2(it.price||0)} | כמות: 
           <input type="number" id="aq_${o['מספר הזמנה']}_${i}" value="${it.qty}" min="0" style="width:45px;padding:2px;background:var(--bg);border:1px solid var(--brd);border-radius:4px;color:var(--tx);text-align:center;font-size:12px">
         </div></div>`).join(''):'<div style="color:var(--tx3);padding:8px">אין פריטים</div>'}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--brd);flex-wrap:wrap;gap:4px">
-        <div style="font-size:16px;font-weight:800">${cur(o['סהכ הזמנה כולל מעמ']||0)}</div>
+        <div style="font-size:16px;font-weight:800">${cur2(o['סהכ הזמנה כולל מעמ']||0)}</div>
         <div style="display:flex;gap:4px">${canApprove()&&items.length?`<button class="btn bg bs" onclick="doApp('${o['מספר הזמנה']}',${items.length})">✓</button>`:''}
           ${canApprove()?`<button class="btn bd bs" onclick="doRej('${o['מספר הזמנה']}')">✗</button>`:''}
           <button class="btn bo bs" onclick="delOrd('${o['מספר הזמנה']}')">🗑</button></div></div></div>`;}).join('')}`}`;
@@ -589,7 +591,7 @@ function rBud(el){const proj=getProjs(),sp=S.sp||proj[0]||'',doms=domSummary(sp)
             <div style="color:var(--tx3);margin-bottom:4px">${subRows.length} הזמנות:</div>
             ${subRows.map(r=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--brd)">
               <span>${r['מספר הזמנה']||''} | ${r['ספק']||''} | ${r['תיאור מוצר']||r['תיאור']||''}</span>
-              <b>${cur(rowAmt(r))}</b></div>`).join('')}</div>`:''}</div>`;}).join('')}`;}}
+              <b>${cur2(rowAmt(r))}</b></div>`).join('')}</div>`:''}</div>`;}).join('')}`;}}
   el.innerHTML=`<div class="fltr"><select onchange="S.sp=this.value;budDrill=null;render()">${proj.map(p=>`<option value="${p}" ${p===sp?'selected':''}>${p}</option>`).join('')}</select></div>
     <div class="card">${ct}</div>`;}
 
@@ -619,14 +621,14 @@ function rProd(el){
     <div class="fg"><input type="text" placeholder="🔍 חיפוש מוצר..." oninput="filterProd(this.value)"></div>
     <div id="prodList">${prods.slice(0,50).map(p=>`<div class="oi"><div style="display:flex;justify-content:space-between">
       <div><b style="font-size:12px">${p[dC]||''}</b><br><span style="font-size:11px;color:var(--tx2)">מק״ט: ${p[idC]||''} | ספק: ${p[sC]||''}</span></div>
-      <b style="color:var(--gn)">${cur(parseFloat(p[pC])||0)}</b></div></div>`).join('')}
+      <b style="color:var(--gn)">${cur2(parseFloat(p[pC])||0)}</b></div></div>`).join('')}
     ${prods.length>50?`<div style="text-align:center;padding:10px;color:var(--tx3);font-size:12px">מציג 50 מתוך ${prods.length}. חפשו לסינון.</div>`:''}</div>`;}
 function filterProd(q){const list=document.getElementById('prodList');if(!list)return;
   const h=S.data.prodH,idC=fh(h,['מק_ט','מקט']),dC=fh(h,['תאור_מוצר','תיאור']),pC=fh(h,['מחיר ליחידה','מחיר']),sC=fh(h,['ספק']);
   const ql=q.toLowerCase();const filtered=S.data.products.filter(p=>(p[idC]||'').toLowerCase().includes(ql)||(p[dC]||'').toLowerCase().includes(ql)||(p[sC]||'').toLowerCase().includes(ql));
   list.innerHTML=filtered.slice(0,50).map(p=>`<div class="oi"><div style="display:flex;justify-content:space-between">
     <div><b style="font-size:12px">${p[dC]||''}</b><br><span style="font-size:11px;color:var(--tx2)">מק״ט: ${p[idC]||''} | ספק: ${p[sC]||''}</span></div>
-    <b style="color:var(--gn)">${cur(parseFloat(p[pC])||0)}</b></div></div>`).join('')
+    <b style="color:var(--gn)">${cur2(parseFloat(p[pC])||0)}</b></div></div>`).join('')
     +(filtered.length>50?`<div style="text-align:center;padding:10px;color:var(--tx3);font-size:12px">${filtered.length} תוצאות</div>`:'');}
 
 // ===== EMAIL + PDF =====
@@ -644,8 +646,8 @@ async function sendMail(o){
   const greeting=contact?'שלום '+contact+',':'שלום רב,';
   let body=greeting+'\n\nמצו"ב הזמנת רכש '+oid+'\nתאריך: '+o['תאריך']+'\nפרויקט: '+o['פרויקט'];
   if(o['תחום'])body+='\nתחום: '+o['תחום'];if(o['תת תחום'])body+='\nתת תחום: '+o['תת תחום'];body+='\n\n';
-  items.forEach((it,i)=>{body+=(i+1)+'. '+(it.desc||it.id)+'\n   מק"ט: '+(it.id||'')+' | כמות: '+it.qty+' | מחיר: '+cur(it.price||0)+' | סה"כ: '+cur(it.total||0)+'\n\n';});
-  body+='סה"כ כולל מע"מ: '+cur(total)+'\n';
+  items.forEach((it,i)=>{body+=(i+1)+'. '+(it.desc||it.id)+'\n   מק"ט: '+(it.id||'')+' | כמות: '+it.qty+' | מחיר: '+cur2(it.price||0)+' | סה"כ: '+cur2(it.total||0)+'\n\n';});
+  body+='סה"כ כולל מע"מ: '+cur2(total)+'\n';
   if(driveLink)body+='\n📄 הזמנה מפורטת:\n'+driveLink+'\n';
   body+='\nבברכה,\n'+(S.user?.name||'')+'\nE.Z — לבנות חכם';
   cModal();
@@ -672,8 +674,8 @@ function genOrderDoc(o,items){
     <div class="det"><div><b>ספק:</b> ${o['ספק']||''}</div><div><b>פרויקט:</b> ${o['פרויקט']||''}</div>
       <div><b>יוצר:</b> ${o['יוצר']||''}</div><div>${o['תחום']?'<b>תחום:</b> '+o['תחום']:''}</div></div>
     <table><thead><tr><th>מק״ט</th><th>מוצר</th><th>כמות</th><th>מחיר</th><th>סה״כ</th></tr></thead>
-      <tbody>${items.map(it=>`<tr><td>${it.id||''}</td><td>${it.desc||''}</td><td>${it.qty}</td><td>${cur(it.price||0)}</td><td style="font-weight:600">${cur(it.total||0)}</td></tr>`).join('')}</tbody></table>
-    <div class="tot"><div>לפני מע"מ: ${cur(sb)}</div><div>מע"מ 18%: ${cur(vat)}</div><div class="big">סה"כ כולל מע"מ: ${cur(total)}</div></div>
+      <tbody>${items.map(it=>`<tr><td>${it.id||''}</td><td>${it.desc||''}</td><td>${it.qty}</td><td>${cur2(it.price||0)}</td><td style="font-weight:600">${cur2(it.total||0)}</td></tr>`).join('')}</tbody></table>
+    <div class="tot"><div>לפני מע"מ: ${cur2(sb)}</div><div>מע"מ 18%: ${cur2(vat)}</div><div class="big">סה"כ כולל מע"מ: ${cur2(total)}</div></div>
     <div class="ft">E.Z — לבנות חכם</div></body></html>`;
   return new Blob([html],{type:'text/html'});}
 
