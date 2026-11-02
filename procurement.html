@@ -250,7 +250,15 @@ async function ensureSheets(){
   for(const[t,h] of Object.entries(want)){let first=[];if(have.has(t)){try{first=(await shRead(t))[0]||[];}catch(e){}}
     if(h.some((x,i)=>(first[i]||'').trim()!==x))fix.push({range:"'"+t+"'!A1",values:[h]});}
   if(fix.length){await shBatchVals(fix);log('תוקנו כותרות: '+fix.map(f=>f.range).join(', '));}
-  S.tabs=true;}
+  S.tabs=true;
+  // Approved orders from before this version get their waiting-for-delivery rows too.
+  const missing=allOrders().filter(o=>isApproved(o)&&!S.data.rcvRows.some(r=>r['מספר הזמנה']===o.id));
+  if(missing.length)await shWrite(C.SH.RCV,missing.flatMap(o=>rcvPendingRows(o,apprLines(o))));}
+
+// "קבלת סחורה" holds one row per approved line. The gap and status are sheet formulas, so typing a received quantity straight into the sheet works too.
+const F_GAP='=IF(INDIRECT("J"&ROW())="","",INDIRECT("J"&ROW())-INDIRECT("I"&ROW()))';
+const F_ST='=IF(INDIRECT("J"&ROW())="","ממתין לאספקה",IF(INDIRECT("K"&ROW())=0,"תואם",IF(INDIRECT("K"&ROW())<0,"חסר","עודף")))';
+const rcvPendingRows=(o,lines)=>lines.map((it,i)=>[o.id,i,'','',o.supplier,o.project,it.sku,it.desc,it.qty,'',F_GAP,F_ST,'','','']);
 
 // DRIVE
 async function uploadToDrive(blob,fileName,mime){
@@ -336,7 +344,8 @@ function apprInfo(id){const rows=S.data.appRows.filter(r=>r['מספר הזמנה
   return{by:rows[0]['מאשר'],at:rows[0]['תאריך אישור'],items:rows.map(r=>({sku:r['מקט'],desc:r['תיאור מוצר'],qty:num(r['כמות']),price:num(r['מחיר ליחידה'])}))};}
 // Approved lines with a stable index (the "שורה" column in the receipt and invoice tabs).
 function apprLines(o){const a=apprInfo(o.id);const src=a?a.items:(['נדחה','ממתין לאישור',''].includes(o.status||'')?[]:o.items);return src.map((it,i)=>({...it,i}));}
-function rcvInfo(id){const rows=S.data.rcvRows.filter(r=>r['מספר הזמנה']===id);if(!rows.length)return null;
+// Rows with an empty received quantity were created at approval and are still waiting for delivery.
+function rcvInfo(id){const rows=S.data.rcvRows.filter(r=>r['מספר הזמנה']===id&&r['כמות שהתקבלה']!=='');if(!rows.length)return null;
   const q=new Map(),docs=new Map();rows.forEach(r=>{const i=parseInt(r['שורה']);if(!isNaN(i))q.set(i,(q.get(i)||0)+num(r['כמות שהתקבלה']));
     const k=r['מספר תעודת משלוח']+'|'+r['תאריך קבלה'];if(!docs.has(k))docs.set(k,{no:r['מספר תעודת משלוח'],date:r['תאריך קבלה'],by:r['מקבל'],file:r['קובץ']});});
   return{q,docs:[...docs.values()]};}
@@ -609,8 +618,8 @@ async function submitOrd(){
   showLd('שומר...');
   try{await ensureSheets();
     const rows=items.map(it=>[oid,dt,sup,proj,dom,sub,creator,'ממתין לאישור',it.id,it.desc,it.qty,it.price,r2(it.total),r2(st),vat,total,notes]);
-    await shWrite(C.SH.ORD,rows);const lo=getLO();lo.push(order);saveLO(lo);hideLd();toast('✅ ההזמנה נשמרה ונשלחה לאישור','ok');
-    oi=[{pid:'',qty:1,price:0,desc:''}];await syncAll(false);navigate('ord');
+    await shWrite(C.SH.ORD,rows);const lo=getLO();lo.push(order);saveLO(lo);hideLd();toast('✅ ההזמנה נשמרה. אפשר לשלוח אותה לספק','ok');
+    oi=[{pid:'',qty:1,price:0,desc:''}];await syncAll(false);navigate('ord');mailOrder(oid);
   }catch(e){hideLd();toast(e.message,'er');}}
 
 // ===== APPROVE =====
@@ -641,6 +650,7 @@ async function doApp(oid){if(!canApprove()){toast('אין הרשאה','er');retu
   showLd('מאשר...');
   try{await ensureSheets();
     await shWrite(C.SH.APP,approved.map(it=>[oid,o.date,o.supplier,o.project,o.domain||'',o.sub||'',o.creator||'','מאושר',it.sku,it.desc,it.qty,it.price,r2(it.qty*it.price),sb,vat,total,o.notes||'',by,at]));
+    if(!S.data.rcvRows.some(r=>r['מספר הזמנה']===oid))await shWrite(C.SH.RCV,rcvPendingRows(o,approved));
     await setOrderStatus(oid,'מאושר');
     const lo=getLO(),x=lo.find(y=>y['מספר הזמנה']===oid);if(x){x['סטטוס']='מאושר';saveLO(lo);}
     await syncAll(false);await refreshTracking().catch(e=>log('TRK:'+e.message));
@@ -819,9 +829,15 @@ async function saveRcv(){const o=getOrder(S.mo);if(!await reqAuth())return;
   const al=apprLines(o),rc=rcvInfo(o.id);if(RD.lines.every(d=>!num(d.qty))){toast('לא הוזנה אף כמות שהתקבלה','er');return;}
   showLd('שומר קבלת סחורה...');
   try{await ensureSheets();const link=await uploadFiles(RD.files,'תעודת_משלוח_'+o.id);const dt=RD.date?new Date(RD.date).toLocaleDateString('he-IL'):now(),by=S.user?.name||'';
-    const rows=al.map(L=>{const q=num(RD.lines.find(x=>x.i===L.i).qty),prev=rc?(rc.q.get(L.i)||0):0,diff=prev+q-L.qty;
-      return[o.id,L.i,dt,RD.no,o.supplier,o.project,L.sku,L.desc,L.qty,q,diff,diff===0?'תואם':diff<0?'חסר':'עודף',by,link,RD.note];});
-    await shWrite(C.SH.RCV,rows);await syncAll(false);
+    // Update the order's existing rows in place (cumulative received quantity); add rows only for lines that have none.
+    const raw=await shRead(C.SH.RCV),rowOf=new Map();raw.forEach((r,ix)=>{if(ix&&(r[0]||'').trim()===o.id)rowOf.set(String(r[1]).trim(),ix+1);});
+    const T="'"+C.SH.RCV+"'!",upd=[],add=[];
+    al.forEach(L=>{const q=num(RD.lines.find(x=>x.i===L.i).qty),tot=(rc?(rc.q.get(L.i)||0):0)+q,rn=rowOf.get(String(L.i));
+      if(!rn){add.push([o.id,L.i,q?dt:'',q?RD.no:'',o.supplier,o.project,L.sku,L.desc,L.qty,q?tot:'',F_GAP,F_ST,q?by:'',q?link:'',q?RD.note:'']);return;}
+      if(!q)return;const old=raw[rn-1]||[],docs=[...new Set([old[3],RD.no].map(x=>(x||'').trim()).filter(Boolean))].join(', ');
+      upd.push({range:`${T}C${rn}:D${rn}`,values:[[dt,docs]]},{range:`${T}J${rn}`,values:[[tot]]},
+        {range:`${T}M${rn}:O${rn}`,values:[[by,[old[13],link].filter(Boolean).join(' '),[old[14],RD.note].filter(Boolean).join(' · ')]]});});
+    if(upd.length)await shBatchVals(upd);if(add.length)await shWrite(C.SH.RCV,add);await syncAll(false);
     const st=stOf(o);await setOrderStatus(o.id,st).catch(()=>{});await refreshTracking().catch(e=>log('TRK:'+e.message));
     hideLd();toast(st==='התקבל'?'✅ הסחורה התקבלה במלואה':'נשמרה קבלה חלקית','ok');initDrafts();render();
   }catch(e){hideLd();toast(e.message,'er');}}
@@ -838,7 +854,6 @@ function disputeText(o,c){let t=`${supContact(o.supplier)?'שלום '+supContact
   c.rows.filter(r=>r.why.length).forEach(r=>t+=`• ${r.L.desc||r.L.sku}: ${r.why.join(', ')} (הפרש ${cur2(r.d)})\n`);
   c.extras.forEach(l=>t+=`• ${l.desc||l.sku}: חויב ${cur2(ilTot(l))} ולא הופיע בהזמנה המאושרת\n`);c.checks.forEach(x=>t+=`• ${x}\n`);
   t+=`\nסה"כ לפני מע"מ לפי ההזמנה ומה שהתקבל: ${cur2(c.expected)}\nסה"כ לפני מע"מ בחשבונית: ${cur2(c.sub)}\nהפרש: ${cur2(c.diff)}\n\nנבקש חשבונית מתוקנת או זיכוי.\n\nבברכה,\n${S.user?.name||''}\nE.Z — לבנות חכם`;return t;}
-function mailDispute(){const o=getOrder(S.mo);mailModal({to:supEmail(o.supplier),subj:`פערים בחשבונית ${ID.no||''} — הזמנה ${o.id}`,body:disputeText(o,invCompare(o)),oid:o.id,pdf:false});}
 
 // ===== PDF + GMAIL =====
 let h2pP=null;
@@ -869,30 +884,79 @@ async function orderPdf(o){await loadH2P();await document.fonts.ready;
 async function downloadPdf(oid){const o=getOrder(oid);showLd('יוצר PDF...');
   try{const b=await orderPdf(o);const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=o.id+'.pdf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
   catch(e){toast(e.message,'er');}hideLd();}
-function mailBody(o){const items=isApproved(o)?apprLines(o):o.items,c=supContact(o.supplier);
-  let b=(c?'שלום '+c+',':'שלום רב,')+'\n\nמצורפת הזמנת רכש '+o.id+' (קובץ PDF).\nתאריך: '+o.date+'\nפרויקט: '+o.project+(o.domain?'\nתחום: '+o.domain:'')+'\n\n';
-  items.forEach((it,i)=>{b+=(i+1)+'. '+(it.desc||it.sku)+' | מק"ט: '+(it.sku||'')+' | כמות: '+it.qty+'\n';});
-  return b+'\nנא לציין את מספר ההזמנה בתעודת המשלוח ובחשבונית.\n\nבברכה,\n'+(S.user?.name||'')+'\nE.Z — לבנות חכם';}
-function mailOrder(oid){const o=getOrder(oid);mailModal({to:supEmail(o.supplier),subj:'הזמנת רכש '+o.id+' — '+o.project,body:mailBody(o),oid,pdf:true});}
+// Email body: a right-to-left HTML letter (table layout and inline styles, which is what Gmail and Outlook render reliably).
+const mhtml=s=>esc(s).replace(/\n/g,'<br>');
+function emailShell(id,title,inner){
+  return`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body dir="rtl" style="margin:0;padding:0;background:#eef1f6">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#eef1f6"><tr><td align="center" style="padding:24px 10px">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" dir="rtl" style="width:100%;max-width:640px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,'Segoe UI',Helvetica,sans-serif;color:#1a2233;direction:rtl;text-align:right">
+<tr><td style="background:#0f1a33;padding:18px 24px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl"><tr>
+    <td style="text-align:right;vertical-align:middle"><img src="cid:ezlogo" width="54" height="54" alt="E.Z" style="display:block;border-radius:9px;border:0"></td>
+    <td style="text-align:left;vertical-align:middle;color:#ffffff;font-size:13px;line-height:1.5">${esc(title)}<br><span dir="ltr" style="font-size:19px;font-weight:bold;letter-spacing:.5px">${esc(id)}</span></td>
+  </tr></table></td></tr>
+${inner}
+<tr><td style="background:#f6f8fb;padding:14px 24px;text-align:center;font-size:12px;color:#8a93a8;border-top:1px solid #e5e9f2">E.Z — לבנות חכם</td></tr>
+</table></td></tr></table></body></html>`;}
+function orderEmailHtml(o,msg){const items=isApproved(o)?apprLines(o):o.items,sb=r2(items.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT);
+  const th='padding:10px 12px;background:#2d7ff9;color:#ffffff;font-size:13px;font-weight:bold;text-align:right;white-space:nowrap';
+  const td='padding:10px 12px;border-bottom:1px solid #e5e9f2;font-size:14px;text-align:right;vertical-align:top';
+  const kv=(k,v)=>`<td style="padding:6px 0;font-size:14px;text-align:right;width:50%"><span style="color:#6b7690">${k}:</span> <b>${esc(v)}</b></td>`;
+  return emailShell(o.id,'הזמנת רכש',`
+<tr><td style="padding:26px 24px 10px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>
+<tr><td style="padding:6px 24px 14px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#f6f8fb;border-radius:10px;padding:8px 14px">
+  <tr>${kv('מספר הזמנה',o.id)}${kv('תאריך',String(o.date||'').split(' ')[0])}</tr><tr>${kv('פרויקט',o.project)}${kv('מזמין',o.creator||S.user?.name||'')}</tr></table></td></tr>
+<tr><td style="padding:0 24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="border-collapse:collapse;border:1px solid #e5e9f2">
+  <tr><th style="${th}">מק״ט</th><th style="${th}">תיאור</th><th style="${th};text-align:center">כמות</th><th style="${th};text-align:left">מחיר</th><th style="${th};text-align:left">סה״כ</th></tr>
+  ${items.map((it,i)=>`<tr style="background:${i%2?'#fafbfd':'#ffffff'}"><td style="${td};color:#6b7690;font-size:13px" dir="ltr">${esc(it.sku)}</td><td style="${td}">${esc(it.desc)}</td>
+    <td style="${td};text-align:center">${it.qty}</td><td style="${td};text-align:left;white-space:nowrap">${cur2(it.price)}</td><td style="${td};text-align:left;white-space:nowrap"><b>${cur2(it.qty*it.price)}</b></td></tr>`).join('')}
+</table></td></tr>
+<tr><td style="padding:14px 24px 4px"><table role="presentation" cellpadding="0" cellspacing="0" dir="rtl" align="left" style="font-size:14px">
+  <tr><td style="padding:3px 0 3px 18px;color:#6b7690">לפני מע״מ</td><td style="text-align:left">${cur2(sb)}</td></tr>
+  <tr><td style="padding:3px 0 3px 18px;color:#6b7690">מע״מ 18%</td><td style="text-align:left">${cur2(vat)}</td></tr>
+  <tr><td style="padding:8px 0 3px 18px;font-weight:bold;font-size:16px">סה״כ לתשלום</td><td style="text-align:left;font-weight:bold;font-size:18px;color:#2d7ff9">${cur2(sb+vat)}</td></tr></table></td></tr>
+${o.notes?`<tr><td style="padding:8px 24px;font-size:14px"><b>הערות:</b> ${esc(o.notes)}</td></tr>`:''}
+<tr><td style="padding:12px 24px 24px"><div style="background:#eef5ff;border-right:4px solid #2d7ff9;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.6">
+  📎 ההזמנה מצורפת כקובץ PDF.<br>נא לציין את מספר ההזמנה <b dir="ltr">${esc(o.id)}</b> בתעודת המשלוח ובחשבונית.</div></td></tr>
+<tr><td style="padding:0 24px 26px;font-size:15px;line-height:1.7;text-align:right">בברכה,<br><b>${esc(S.user?.name||'')}</b><br>E.Z — לבנות חכם</td></tr>`);}
+function textEmailHtml(id,title,msg){return emailShell(id,title,`<tr><td style="padding:26px 24px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>`);}
+function orderMsg(o){const c=supContact(o.supplier);
+  return`${c?'שלום '+c+',':'שלום רב,'}\n\nמצורפת הזמנת רכש עבור פרויקט ${o.project}.\nנבקש לאשר את קבלת ההזמנה ולתאם מועד אספקה.`;}
+function orderPlain(o,msg){const items=isApproved(o)?apprLines(o):o.items;
+  return msg+'\n\nהזמנה '+o.id+'\n'+items.map((it,i)=>`${i+1}. ${it.desc||it.sku} | מק"ט ${it.sku||'-'} | כמות ${it.qty} | ${cur2(it.qty*it.price)}`).join('\n')+'\n\nנא לציין את מספר ההזמנה בתעודת המשלוח ובחשבונית.\n\nבברכה,\n'+(S.user?.name||'')+'\nE.Z — לבנות חכם';}
+
+function mailOrder(oid){const o=getOrder(oid);if(!o)return;mailModal({to:supEmail(o.supplier),subj:'הזמנת רכש '+o.id+' — '+o.project,msg:orderMsg(o),oid,pdf:true});}
+function mailDispute(){const o=getOrder(S.mo);mailModal({to:supEmail(o.supplier),subj:`פערים בחשבונית ${ID.no||''} — הזמנה ${o.id}`,msg:disputeText(o,invCompare(o)),oid:o.id,pdf:false,title:'פערים בחשבונית'});}
 let MD=null;
+const mailHtml=msg=>MD.pdf?orderEmailHtml(getOrder(MD.oid),msg):textEmailHtml(MD.oid,MD.title||'',msg);
 function mailModal(d){MD=d;oModal(`<h3>📧 שליחה לספק</h3>
-  <div class="fg"><label>אל</label><input type="text" id="mTo" dir="ltr" value="${esc(d.to)}" placeholder="supplier@example.com"></div>
-  <div class="fg"><label>נושא</label><input type="text" id="mSu" value="${esc(d.subj)}"></div>
-  <div class="fg"><label>תוכן</label><textarea id="mBo" style="min-height:180px">${esc(d.body)}</textarea></div>
-  ${d.pdf?`<div class="note" style="margin-bottom:8px">📎 יצורף ${esc(d.oid)}.pdf, ועותק יישמר בתיקיית הדרייב.</div>`:''}
-  <div class="br"><button class="btn bp" id="mSend" onclick="sendMailNow()">שליחה מהג׳ימייל שלי</button><button class="btn bo bs" onclick="cModal()">ביטול</button></div>`);}
+  <div class="frow"><div class="fg"><label>אל</label><input type="text" id="mTo" dir="ltr" value="${esc(d.to)}" placeholder="supplier@example.com"></div>
+    <div class="fg"><label>נושא</label><input type="text" id="mSu" value="${esc(d.subj)}"></div></div>
+  <div class="fg"><label>ההודעה לספק</label><textarea id="mBo" style="min-height:${d.pdf?130:200}px" oninput="mailPrev()">${esc(d.msg)}</textarea></div>
+  ${d.pdf?`<div class="note" style="margin-bottom:6px">📎 יצורף ${esc(d.oid)}.pdf, ועותק יישמר בתיקיית הדרייב.</div>`:''}
+  <div class="fg"><label>כך הספק יראה את המייל</label><iframe id="mPrev" title="תצוגה מקדימה" style="width:100%;height:440px;border:1px solid var(--brd);border-radius:var(--r);background:#eef1f6"></iframe></div>
+  <div class="br"><button class="btn bp" id="mSend" onclick="sendMailNow()">📤 שליחה מהג׳ימייל שלי</button><button class="btn bo bs" onclick="cModal()">לא עכשיו</button></div>`);mailPrev();}
+function mailPrev(){const f=document.getElementById('mPrev');if(f)f.srcdoc=mailHtml(document.getElementById('mBo').value).replace('cid:ezlogo',LOGO);}
 const b64u=s=>btoa(unescape(encodeURIComponent(s)));
 const wrap76=s=>s.replace(/.{1,76}/g,'$&\r\n');
 const blobB64=b=>fileB64(b);
-async function sendMailNow(){const to=document.getElementById('mTo').value.trim(),subj=document.getElementById('mSu').value,body=document.getElementById('mBo').value;
+async function sendMailNow(){const to=document.getElementById('mTo').value.trim(),subj=document.getElementById('mSu').value,msg=document.getElementById('mBo').value;
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){toast('כתובת מייל לא תקינה','er');return;}
   if(!await reqAuth())return;const o=getOrder(MD.oid);showLd(MD.pdf?'יוצר PDF ושולח...':'שולח...');
-  try{const bnd='ez'+Date.now();
-    let mime=`To: ${to}\r\nSubject: =?UTF-8?B?${b64u(subj)}?=\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${bnd}"\r\n\r\n--${bnd}\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(b64u(body))}\r\n`;
+  try{const mx='ezm'+Date.now(),rl='ezr'+Date.now(),al='eza'+Date.now();
+    const plain=MD.pdf?orderPlain(o,msg):msg,html=mailHtml(msg);
+    // multipart/mixed → [ multipart/related → [ multipart/alternative → [plain, html], logo ], PDF ]
+    let mime=`To: ${to}\r\nSubject: =?UTF-8?B?${b64u(subj)}?=\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${mx}"\r\n\r\n`+
+      `--${mx}\r\nContent-Type: multipart/related; boundary="${rl}"\r\n\r\n`+
+      `--${rl}\r\nContent-Type: multipart/alternative; boundary="${al}"\r\n\r\n`+
+      `--${al}\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(b64u(plain))}\r\n`+
+      `--${al}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(b64u(html))}\r\n--${al}--\r\n`+
+      `--${rl}\r\nContent-Type: image/jpeg; name="logo.jpg"\r\nContent-ID: <ezlogo>\r\nContent-Disposition: inline; filename="logo.jpg"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(LOGO.split(',')[1])}\r\n--${rl}--\r\n`;
     if(MD.pdf){const pdf=await orderPdf(o);
-      mime+=`--${bnd}\r\nContent-Type: application/pdf; name="${o.id}.pdf"\r\nContent-Disposition: attachment; filename="${o.id}.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(await blobB64(pdf))}\r\n`;
+      mime+=`--${mx}\r\nContent-Type: application/pdf; name="${o.id}.pdf"\r\nContent-Disposition: attachment; filename="${o.id}.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(await blobB64(pdf))}\r\n`;
       uploadToDrive(pdf,'הזמנה_'+o.id+'.pdf','application/pdf').then(l=>log('Drive: '+l)).catch(e=>log('Drive: '+e.message));}
-    mime+=`--${bnd}--`;
+    mime+=`--${mx}--`;
     const raw=btoa(mime).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
     await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',body:JSON.stringify({raw})});
     hideLd();cModal();toast('✅ המייל נשלח ל-'+to,'ok');
