@@ -91,6 +91,11 @@ table.t td.n{text-align:left;white-space:nowrap}
 table.t tr.xr td{background:var(--rds)}table.t tr.xo td{background:var(--ors)}
 table.t input,table.t select{padding:5px 6px;background:var(--bg);border:1px solid var(--brd);border-radius:6px;color:var(--tx);font:12px 'Heebo'}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;unicode-bidi:embed}
+.stp{display:inline-flex;align-items:stretch;border:1px solid var(--brd);border-radius:8px;overflow:hidden;background:var(--bg);vertical-align:middle}
+.stp button{width:34px;min-height:34px;border:0;background:var(--bg3);color:var(--tx);font:700 17px 'Heebo';cursor:pointer;-webkit-tap-highlight-color:transparent}
+.stp button:active{background:var(--bl);color:#fff}
+.stp input,table.t .stp input{border:0!important;border-radius:0!important;background:var(--bg)!important;color:var(--tx);text-align:center;font:600 14px 'Heebo';padding:4px 2px!important;-moz-appearance:textfield}
+.stp input::-webkit-outer-spin-button,.stp input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 
 .drop{display:block;border:1.5px dashed var(--brd);border-radius:12px;padding:16px;text-align:center;background:var(--bg3);cursor:pointer;font-size:13px}
 .drop:hover,.drop.on{border-color:var(--bl);background:var(--bls)}
@@ -251,11 +256,11 @@ async function ensureSheets(){
     if(h.some((x,i)=>(first[i]||'').trim()!==x))fix.push({range:"'"+t+"'!A1",values:[h]});}
   if(fix.length){await shBatchVals(fix);log('תוקנו כותרות: '+fix.map(f=>f.range).join(', '));}
   S.tabs=true;
-  // Approved orders from before this version get their waiting-for-delivery rows too.
-  const missing=allOrders().filter(o=>isApproved(o)&&!S.data.rcvRows.some(r=>r['מספר הזמנה']===o.id));
+  // Orders from before this version get their waiting-for-delivery rows too.
+  const missing=allOrders().filter(o=>isOpen(o)&&!S.data.rcvRows.some(r=>r['מספר הזמנה']===o.id));
   if(missing.length)await shWrite(C.SH.RCV,missing.flatMap(o=>rcvPendingRows(o,apprLines(o))));}
 
-// "קבלת סחורה" holds one row per approved line. The gap and status are sheet formulas, so typing a received quantity straight into the sheet works too.
+// "קבלת סחורה" holds one row per ordered line, written when the order is created. The gap and status are sheet formulas, so typing a received quantity straight into the sheet works too.
 const F_GAP='=IF(INDIRECT("J"&ROW())="","",INDIRECT("J"&ROW())-INDIRECT("I"&ROW()))';
 const F_ST='=IF(INDIRECT("J"&ROW())="","ממתין לאספקה",IF(INDIRECT("K"&ROW())=0,"תואם",IF(INDIRECT("K"&ROW())<0,"חסר","עודף")))';
 const rcvPendingRows=(o,lines)=>lines.map((it,i)=>[o.id,i,'','',o.supplier,o.project,it.sku,it.desc,it.qty,'',F_GAP,F_ST,'','','']);
@@ -340,41 +345,49 @@ function allOrders(){const m=new Map(),del=getDel();
   return[...m.values()].sort((a,b)=>String(b.id).localeCompare(String(a.id)));}
 const getOrder=id=>allOrders().find(o=>o.id===id);
 
-function apprInfo(id){const rows=S.data.appRows.filter(r=>r['מספר הזמנה']===id);if(!rows.length)return null;
-  return{by:rows[0]['מאשר'],at:rows[0]['תאריך אישור'],items:rows.map(r=>({sku:r['מקט'],desc:r['תיאור מוצר'],qty:num(r['כמות']),price:num(r['מחיר ליחידה'])}))};}
-// Approved lines with a stable index (the "שורה" column in the receipt and invoice tabs).
-function apprLines(o){const a=apprInfo(o.id);const src=a?a.items:(['נדחה','ממתין לאישור',''].includes(o.status||'')?[]:o.items);return src.map((it,i)=>({...it,i}));}
-// Rows with an empty received quantity were created at approval and are still waiting for delivery.
+// Ordered lines with a stable index (the "שורה" column in the receipt and invoice tabs).
+function apprLines(o){return o.items.map((it,i)=>({...it,i}));}
+// Rows with an empty received quantity were created with the order and are still waiting for delivery.
 function rcvInfo(id){const rows=S.data.rcvRows.filter(r=>r['מספר הזמנה']===id&&r['כמות שהתקבלה']!=='');if(!rows.length)return null;
   const q=new Map(),docs=new Map();rows.forEach(r=>{const i=parseInt(r['שורה']);if(!isNaN(i))q.set(i,(q.get(i)||0)+num(r['כמות שהתקבלה']));
-    const k=r['מספר תעודת משלוח']+'|'+r['תאריך קבלה'];if(!docs.has(k))docs.set(k,{no:r['מספר תעודת משלוח'],date:r['תאריך קבלה'],by:r['מקבל'],file:r['קובץ']});});
+    if(!r['תאריך קבלה'])return;const k=r['מספר תעודת משלוח']+'|'+r['תאריך קבלה'];if(!docs.has(k))docs.set(k,{no:r['מספר תעודת משלוח'],date:r['תאריך קבלה'],by:r['מקבל'],file:(r['קובץ']||'').split(' ')[0]});});
   return{q,docs:[...docs.values()]};}
+// A line whose missing quantity was re-ordered from another supplier carries this marker in the "הערות" column.
+const SPLIT_MARK='יתרה הוזמנה מ';
+const closedLines=id=>new Set(S.data.rcvRows.filter(r=>r['מספר הזמנה']===id&&(r['הערות']||'').includes(SPLIT_MARK)).map(r=>parseInt(r['שורה'])));
 function invInfo(id){const rows=S.data.invRows.filter(r=>r['מספר הזמנה']===id);if(!rows.length)return null;
   const last=rows[rows.length-1]['תאריך בדיקה'],cur_=rows.filter(r=>r['תאריך בדיקה']===last);
   return{no:cur_[0]['מספר חשבונית'],date:cur_[0]['תאריך חשבונית'],decision:cur_[0]['החלטה'],by:cur_[0]['בודק'],at:last,file:cur_[0]['קובץ'],
     rows:cur_,billed:r2(cur_.reduce((s,r)=>s+num(r['סכום בחשבונית']),0)),diff:r2(cur_.reduce((s,r)=>s+num(r['הפרש']),0))};}
 
-// Three-way match: approved ↔ received ↔ invoiced, per line.
-function match3(o){const al=apprLines(o),rc=rcvInfo(o.id),iv=invInfo(o.id);
+// Three-way match: ordered ↔ received ↔ invoiced, per line.
+function match3(o){const al=apprLines(o),rc=rcvInfo(o.id),iv=invInfo(o.id),cl=closedLines(o.id);
   const lines=al.map(L=>{const rq=rc?(rc.q.get(L.i)||0):null;const ir=iv?iv.rows.filter(r=>r['שורה']===String(L.i)):[];
     const iq=iv?ir.reduce((s,r)=>s+num(r['כמות בחשבונית']),0):null,it=ir.reduce((s,r)=>s+num(r['סכום בחשבונית']),0),ip=iq?it/iq:null;
-    const flags=[];if(rq!==null&&rq<L.qty)flags.push('חסר באספקה');if(rq!==null&&rq>L.qty)flags.push('סופק עודף');
-    if(iq!==null){const base=rq!==null?rq:L.qty;if(!ir.length)flags.push('לא חויב');else{if(Math.abs(iq-base)>1e-9)flags.push('כמות בחשבונית שונה');if(ip!==null&&Math.abs(ip-L.price)>0.011)flags.push('מחיר שונה');}}
-    return{...L,rq,iq,ip,flags};});
+    const flags=[];if(rq!==null&&rq<L.qty)flags.push(cl.has(L.i)?'היתרה הוזמנה מספק אחר':'חסר באספקה');if(rq!==null&&rq>L.qty)flags.push('סופק עודף');
+    if(iq!==null){const base=rq!==null?rq:L.qty;if(!ir.length&&base>0)flags.push('לא חויב');else if(ir.length){if(Math.abs(iq-base)>1e-9)flags.push('כמות בחשבונית שונה');if(ip!==null&&Math.abs(ip-L.price)>0.011)flags.push('מחיר שונה');}}
+    return{...L,rq,iq,ip,flags,closed:cl.has(L.i)};});
   const extras=iv?iv.rows.filter(r=>r['שורה']===''||!al.some(L=>String(L.i)===r['שורה'])):[];
   const approved=r2(al.reduce((s,l)=>s+l.qty*l.price,0)),received=rc?r2(lines.reduce((s,l)=>s+(l.rq||0)*l.price,0)):null;
-  return{lines,extras,approved,received,billed:iv?iv.billed:null,shortVal:rc?r2(lines.reduce((s,l)=>s+Math.max(0,l.qty-(l.rq||0))*l.price,0)):null,invDiff:iv?iv.diff:null,rc,iv};}
+  return{lines,extras,approved,received,billed:iv?iv.billed:null,shortVal:rc?r2(lines.reduce((s,l)=>s+(l.closed?0:Math.max(0,l.qty-(l.rq||0)))*l.price,0)):null,invDiff:iv?iv.diff:null,rc,iv};}
+// Lines still missing after the deliveries so far (and not re-ordered elsewhere).
+const missingLines=o=>{const rc=rcvInfo(o.id);if(!rc)return[];const cl=closedLines(o.id);
+  return apprLines(o).filter(L=>!cl.has(L.i)&&(rc.q.get(L.i)||0)<L.qty).map(L=>({...L,miss:L.qty-(rc.q.get(L.i)||0)}));};
 
-function stOf(o){const base=o.status||'ממתין לאישור';if(base==='נדחה')return'נדחה';
-  const ap=apprInfo(o.id)||(base!=='ממתין לאישור'?{}:null);if(!ap)return'ממתין לאישור';
+const SPLIT_ST='התקבל, יתרה הוזמנה מספק אחר';
+function stOf(o){const base=o.status||'';if(base==='בוטל'||base==='נדחה')return'בוטל';
   const iv=invInfo(o.id);if(iv)return iv.decision==='אושרה לתשלום'?'חשבונית אושרה':'פערים בחשבונית';
-  const rc=rcvInfo(o.id);if(rc){const m=match3(o);return m.lines.every(l=>(l.rq||0)>=l.qty)?'התקבל':'התקבל חלקית';}
-  return'מאושר';}
-const ST_CLS={'ממתין לאישור':'b-p','מאושר':'b-i','נדחה':'b-r','התקבל חלקית':'b-p','התקבל':'b-a','חשבונית אושרה':'b-a','פערים בחשבונית':'b-r'};
+  const rc=rcvInfo(o.id);if(!rc)return'ממתין לאספקה';
+  const cl=closedLines(o.id),open=apprLines(o).filter(L=>(rc.q.get(L.i)||0)<L.qty);
+  if(!open.length)return'התקבל';return open.every(L=>cl.has(L.i))?SPLIT_ST:'התקבל חלקית';}
+const ST_CLS={'ממתין לאספקה':'b-i','התקבל חלקית':'b-p','התקבל':'b-a',[SPLIT_ST]:'b-v','חשבונית אושרה':'b-a','פערים בחשבונית':'b-r','בוטל':'b-r'};
 const badge=st=>`<span class="badge ${ST_CLS[st]||'b-p'}">${esc(st)}</span>`;
-const isApproved=o=>!['ממתין לאישור','נדחה'].includes(stOf(o));
+const isOpen=o=>stOf(o)!=='בוטל';
 
-const appTotal=(proj,dom)=>r2(allOrders().filter(o=>o.project===proj&&(!dom||o.domain===dom)&&isApproved(o)).reduce((s,o)=>s+apprLines(o).reduce((a,l)=>a+l.qty*l.price,0),0));
+// Budget use: what was ordered (or more, if more arrived). A line re-ordered from another supplier counts only what arrived here.
+function committedVal(o,sub){if(!isOpen(o)||(sub&&(o.sub||'כללי')!==sub))return 0;const rc=rcvInfo(o.id),cl=closedLines(o.id);
+  return r2(apprLines(o).reduce((s,L)=>{const rq=rc?(rc.q.get(L.i)||0):0;return s+(cl.has(L.i)?rq:Math.max(L.qty,rq))*L.price;},0));}
+const appTotal=(proj,dom,sub)=>r2(allOrders().filter(o=>o.project===proj&&(!dom||o.domain===dom)).reduce((s,o)=>s+committedVal(o,sub),0));
 
 const canApprove=()=>S.user&&(S.user.role==='admin'||S.user.role==='manager');
 const canBuy=()=>S.user&&['admin','manager','procurement'].includes(S.user.role);
@@ -388,10 +401,9 @@ async function setOrderStatus(oid,status){
   for(let i=1;i<d.length;i++)if((d[i][0]||'')===oid)data.push({range:"'"+C.SH.ORD+"'!H"+(i+1),values:[[status]]});
   if(data.length)await shBatchVals(data);}
 
-// Rewrites the "מעקב הזמנות" tab: one row per approved order with what was approved, received and billed.
+// Rewrites the "מעקב הזמנות" tab: one row per order with what was ordered, received and billed.
 async function refreshTracking(){
-  const rows=allOrders().filter(o=>isApproved(o)).map(o=>{const m=match3(o),st=stOf(o);
-    const ok=st==='חשבונית אושרה'||(st==='התקבל'&&!m.iv);const issues=m.lines.reduce((s,l)=>s+l.flags.length,0)+m.extras.length;
+  const rows=allOrders().filter(isOpen).map(o=>{const m=match3(o),st=stOf(o);const issues=m.lines.reduce((s,l)=>s+l.flags.filter(f=>f!=='היתרה הוזמנה מספק אחר').length,0)+m.extras.length;
     return[o.id,o.date,o.supplier,o.project,o.domain||'',st,m.approved,m.received??'',m.billed??'',m.shortVal??'',m.invDiff??'',
       !m.rc&&!m.iv?'ממתין לאספקה':issues?`${issues} פערים`:'תואם',now()];});
   await shClear(C.SH.TRK);await shUpdate(C.SH.TRK,'A1',[TH,...rows]);}
@@ -404,17 +416,21 @@ function updHdr(){document.getElementById('uN').textContent=S.user?.name||S.user
 
 const PG=[{id:'dash',icon:'📊',label:'דאשבורד',r:['admin','manager','procurement','viewer']},
   {id:'ord',icon:'📋',label:'הזמנות',r:['admin','manager','procurement','viewer']},
-  {id:'appr',icon:'✅',label:'אישור',r:['admin','manager']},
   {id:'new',icon:'➕',label:'חדשה',r:['admin','manager','procurement']},
   {id:'match',icon:'📦',label:'קבלה וחשבונית',r:['admin','manager','procurement']},
   {id:'sup',icon:'🏢',label:'ספקים',r:['admin','manager','procurement','viewer']},
   {id:'prod',icon:'🏷',label:'מוצרים',r:['admin','manager','procurement','viewer']}];
-function buildNav(){const os=myOrders();const pn=os.filter(o=>stOf(o)==='ממתין לאישור').length,wait=os.filter(o=>['מאושר','התקבל חלקית','התקבל','פערים בחשבונית'].includes(stOf(o))).length;
+function buildNav(){const wait=myOrders().filter(o=>['ממתין לאספקה','התקבל חלקית','פערים בחשבונית'].includes(stOf(o))).length;
   const role=S.user?.role||'viewer';
-  document.getElementById('BN').innerHTML=PG.filter(p=>p.r.includes(role)).map(p=>{const c=p.id==='appr'?pn:p.id==='match'?wait:0;
+  document.getElementById('BN').innerHTML=PG.filter(p=>p.r.includes(role)).map(p=>{const c=p.id==='match'?wait:0;
     return`<div class="bt ${S.page===p.id?'active':''}" onclick="navigate('${p.id}')"><div class="bi">${p.icon}</div><div>${p.label}</div>${c?`<span class="bt-badge">${c}</span>`:''}</div>`;}).join('');}
 function navigate(p,mo){S.page=p;if(p!=='match')S.mo=null;if(mo!==undefined){S.mo=mo;initDrafts();}cModal();buildNav();render();window.scrollTo(0,0);}
-function render(){const m=document.getElementById('MC');({dash:rDash,ord:rOrd,new:rNew,appr:rAppr,match:rMatch,sup:rSup,prod:rProd})[S.page]?.(m);}
+function render(){const m=document.getElementById('MC');({dash:rDash,ord:rOrd,new:rNew,match:rMatch,sup:rSup,prod:rProd})[S.page]?.(m);}
+
+// Number fields: +/− buttons, and the whole value is selected on focus so typing replaces it instead of appending.
+const stepper=(val,on,o={})=>`<span class="stp"><button type="button" tabindex="-1" aria-label="הוספה" onclick="stepB(this,${o.step||1})">+</button><input type="number" inputmode="decimal" min="0" step="${o.dec?'0.01':'1'}" value="${val}" onfocus="selAll(this)" onclick="selAll(this)" onchange="${on}" style="width:${o.w||64}px"><button type="button" tabindex="-1" aria-label="הפחתה" onclick="stepB(this,-${o.step||1})">−</button></span>`;
+function stepB(b,d){const i=b.parentNode.querySelector('input');i.value=Math.max(0,r2(num(i.value)+d));i.dispatchEvent(new Event('change'));}
+function selAll(i){setTimeout(()=>{try{i.select();}catch(e){}},0);}
 
 // ===== DASHBOARD =====
 let selDom='';
@@ -473,14 +489,13 @@ function rDash(el){
   } else {
     const dd=doms.find(d=>d.name===sd);
     if(dd){const du=appTotal(sp,sd),dr=dd.budget-du,dp=dd.budget>0?Math.round(du/dd.budget*100):0;
-      const os=allOrders().filter(o=>o.project===sp&&o.domain===sd&&isApproved(o));
       bHtml=`<div class="stats">
         <div class="st bl"><div class="st-v">${cur(dd.budget)}</div><div class="st-l">${esc(sd)}</div></div>
         <div class="st gn"><div class="st-v">${cur(du)}</div><div class="st-l">ביצוע</div></div>
         <div class="st or"><div class="st-v">${cur(dr)}</div><div class="st-l">יתרה</div></div>
         <div class="st"><div class="st-v">${dp}%</div><div class="st-l">%</div></div></div>
       <div class="card"><div class="card-t">תתי תחום — ${esc(sd)} <button class="btn bo bs" onclick="selDom='';render()">◂ כל התחומים</button></div>
-        ${dd.subs.map(sub=>{const su=r2(os.filter(o=>(o.sub||'כללי')===sub.sub).reduce((s,o)=>s+apprLines(o).reduce((a,l)=>a+l.qty*l.price,0),0)),p=sub.amt>0?Math.round(su/sub.amt*100):0,c=p>90?'var(--rd)':p>70?'var(--or)':'var(--gn)';
+        ${dd.subs.map(sub=>{const su=appTotal(sp,sd,sub.sub),p=sub.amt>0?Math.round(su/sub.amt*100):0,c=p>90?'var(--rd)':p>70?'var(--or)':'var(--gn)';
           return`<div class="brow"><div class="brow-n">${esc(sub.sub)}</div><div class="brow-d">
             <div class="i"><div class="v">${cur(sub.amt)}</div><div class="l">תקציב</div></div>
             <div class="i"><div class="v" style="color:${c}">${p}%</div><div class="l">ביצוע</div></div>
@@ -493,8 +508,8 @@ function rDash(el){
     ${alertHtml}${probHtml}${bHtml}
     <div class="stats">
       <div class="st bl"><div class="st-v">${my.length}</div><div class="st-l">הזמנות</div></div>
-      <div class="st or"><div class="st-v">${cnt('ממתין לאישור')}</div><div class="st-l">ממתינות לאישור</div></div>
-      <div class="st pp"><div class="st-v">${cnt('מאושר')+cnt('התקבל חלקית')}</div><div class="st-l">ממתינות לאספקה</div></div>
+      <div class="st pp"><div class="st-v">${cnt('ממתין לאספקה')}</div><div class="st-l">ממתינות לאספקה</div></div>
+      <div class="st or"><div class="st-v">${cnt('התקבל חלקית')}</div><div class="st-l">התקבלו חלקית</div></div>
       <div class="st gn"><div class="st-v">${cnt('חשבונית אושרה')}</div><div class="st-l">נסגרו</div></div></div>
     <button class="btn bo" onclick="syncAll()">🔄 סנכרון</button>
     ${S.user?.role==='admin'?'<button class="btn bo bs" onclick="showDbg()" style="margin-top:6px">🐛</button>':''}`;
@@ -517,31 +532,38 @@ function rOrd(el){const q=oF.q.trim().toLowerCase();
 }
 
 function match3Table(o){const m=match3(o);if(!m.lines.length)return'';
-  return`<div class="tw"><table class="t"><thead><tr><th>פריט</th><th>אושר</th><th>התקבל</th><th>בחשבונית</th><th>מחיר</th><th>מצב</th></tr></thead><tbody>
-  ${m.lines.map(l=>`<tr class="${l.flags.length?'xr':''}"><td>${esc(l.desc||l.sku)}<div class="mono" style="color:var(--tx3)">${esc(l.sku)}</div></td><td class="n">${l.qty}</td><td class="n">${l.rq??'—'}</td><td class="n">${l.iq??'—'}</td>
+  return`<div class="tw"><table class="t"><thead><tr><th>פריט</th><th>הוזמן</th><th>התקבל</th><th>בחשבונית</th><th>מחיר</th><th>מצב</th></tr></thead><tbody>
+  ${m.lines.map(l=>`<tr class="${l.flags.length?(l.closed&&l.flags.length===1?'':'xr'):''}"><td>${esc(l.desc||l.sku)}<div class="mono" style="color:var(--tx3)">${esc(l.sku)}</div></td><td class="n">${l.qty}</td><td class="n">${l.rq??'—'}</td><td class="n">${l.iq??'—'}</td>
     <td class="n">${cur2(l.price)}${l.ip!==null&&Math.abs(l.ip-l.price)>0.011?`<br><span style="color:var(--rd)">${cur2(l.ip)}</span>`:''}</td>
-    <td>${l.flags.length?l.flags.map(f=>`<span class="badge b-r">${f}</span>`).join(' '):(l.rq===null&&l.iq===null?'<span class="note">ממתין</span>':'<span class="badge b-a">תואם</span>')}</td></tr>`).join('')}
+    <td>${l.flags.length?l.flags.map(f=>`<span class="badge ${f==='היתרה הוזמנה מספק אחר'?'b-v':'b-r'}">${f}</span>`).join(' '):(l.rq===null&&l.iq===null?'<span class="note">ממתין</span>':'<span class="badge b-a">תואם</span>')}</td></tr>`).join('')}
   ${m.extras.map(r=>`<tr class="xr"><td>${esc(r['תיאור'])}</td><td class="n">—</td><td class="n">—</td><td class="n">${esc(r['כמות בחשבונית'])}</td><td class="n">${cur2(r['מחיר בחשבונית'])}</td><td><span class="badge b-r">לא הוזמן</span></td></tr>`).join('')}
   </tbody></table></div>
-  <div class="note">אושר ${cur2(m.approved)}${m.received!==null?' · התקבל בשווי '+cur2(m.received):''}${m.billed!==null?' · חויב '+cur2(m.billed)+' (פער '+cur2(m.invDiff)+')':''} · לפני מע״מ</div>`;}
+  <div class="note">הוזמן ${cur2(m.approved)}${m.received!==null?' · התקבל בשווי '+cur2(m.received):''}${m.billed!==null?' · חויב '+cur2(m.billed)+' (פער '+cur2(m.invDiff)+')':''} · לפני מע״מ</div>`;}
 
-function viewOrd(oid){const o=getOrder(oid);if(!o)return;const st=stOf(o),a=apprInfo(oid),rc=rcvInfo(oid),iv=invInfo(oid);
+function viewOrd(oid){const o=getOrder(oid);if(!o)return;const st=stOf(o),rc=rcvInfo(oid),iv=invInfo(oid);
   oModal(`<h3>${esc(oid)} ${badge(st)}</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:10px">
       <div>📅 ${esc(o.date)}</div><div>👤 ${esc(o.creator)}</div>
       <div>🏢 ${esc(o.supplier)}</div><div>📁 ${esc(o.project)}</div>
       <div>${o.domain?'🏗 '+esc(o.domain):''}</div><div>${o.sub?esc(o.sub):''}</div></div>
-    ${isApproved(o)?match3Table(o):o.items.map(it=>`<div class="oi"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${esc(it.desc||it.sku)}</b><b>${cur2(it.qty*it.price)}</b></div>
+    ${rc||iv?match3Table(o):o.items.map(it=>`<div class="oi"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${esc(it.desc||it.sku)}</b><b>${cur2(it.qty*it.price)}</b></div>
       <div style="font-size:11px;color:var(--tx2)">מק״ט: ${esc(it.sku)} | כמות: ${it.qty} | מחיר: ${cur2(it.price)}</div></div>`).join('')}
     <div style="font-size:18px;font-weight:800;margin-top:8px">סה״כ: ${cur2(o.total)}</div>
-    <div class="note">${a?`אושר ע״י ${esc(a.by)} ${esc(a.at)}`:''}${rc?` · ${rc.docs.length} תעודות משלוח`:''}${iv?` · חשבונית ${esc(iv.no)} (${esc(iv.decision)})`:''}</div>
+    <div class="note">${rc?`${rc.docs.length} תעודות משלוח · אחרונה ${esc(rc.docs[rc.docs.length-1]?.date||'')}`:''}${iv?` · חשבונית ${esc(iv.no)} (${esc(iv.decision)})`:''}</div>
     ${o.notes?`<div class="note">הערות: ${esc(o.notes)}</div>`:''}
     <div class="br" style="flex-direction:column">
-      ${isApproved(o)&&canBuy()?`<button class="btn bv" onclick="navigate('match',${jq(oid)})">📦 קבלת סחורה והשוואת חשבונית</button>`:''}
+      ${isOpen(o)&&canBuy()?`<button class="btn bv" onclick="navigate('match',${jq(oid)})">📦 קבלת סחורה ואישור · חשבונית</button>`:''}
+      ${missingLines(o).length&&canBuy()?`<button class="btn bo" onclick="shortModal(${jq(oid)})">🔁 השלמת חוסרים מספק אחר</button>`:''}
       <button class="btn bp" onclick="mailOrder(${jq(oid)})">📧 שליחת PDF לספק במייל</button>
       <button class="btn bo" onclick="downloadPdf(${jq(oid)})">⬇️ הורדת PDF</button>
+      ${canApprove()&&!rc&&isOpen(o)?`<button class="btn bo" id="cnB" onclick="cancelOrd(${jq(oid)})">✗ ביטול הזמנה</button>`:''}
       ${S.user?.role==='admin'?`<button class="btn bd" id="delB" onclick="delOrd(${jq(oid)})">🗑 מחק</button>`:''}
       <button class="btn bo" onclick="cModal()">סגור</button></div>`);}
+
+async function cancelOrd(oid){const b=document.getElementById('cnB');if(b&&!b.dataset.sure){b.dataset.sure=1;b.textContent='לחצו שוב לביטול ההזמנה';return;}
+  if(!await reqAuth())return;showLd('מבטל...');
+  try{await setOrderStatus(oid,'בוטל');const lo=getLO(),x=lo.find(y=>y['מספר הזמנה']===oid);if(x){x['סטטוס']='בוטל';saveLO(lo);}
+    await syncAll(false);await refreshTracking().catch(e=>log('TRK:'+e.message));hideLd();cModal();toast('ההזמנה בוטלה');}catch(e){hideLd();toast(e.message,'er');}render();}
 
 function delOrd(oid){const b=document.getElementById('delB');if(b&&!b.dataset.sure){b.dataset.sure=1;b.textContent='לחצו שוב כדי למחוק';return;}
   const del=getDel();if(!del.includes(oid))del.push(oid);localStorage.setItem('ez_del6',JSON.stringify(del));
@@ -564,7 +586,7 @@ function rNew(el){
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--brd)">
       <div style="font-size:12px;color:var(--tx2)">לפני מע״מ: <b id="oSb">₪0</b> | מע״מ: <b id="oVt">₪0</b></div>
       <div style="font-size:20px;font-weight:800;margin:4px 0">סה״כ: <span id="oTt">₪0</span></div>
-      <button class="btn bp" id="subB" onclick="submitOrd()">📤 שלח הזמנה לאישור</button></div></div>`;rOI();}
+      <button class="btn bp" id="subB" onclick="submitOrd()">📤 שמירה ושליחה לספק</button></div></div>`;rOI();}
 
 function prodCols(){const h=S.data.prodH;return{idC:fh(h,['מק_ט','מק_ס','מקט']),dC:fh(h,['תאור_מוצר','תיאור']),pC:fh(h,['מחיר ליחידה','מחיר']),sC:fh(h,['ספק'])};}
 function rOI(){const c=document.getElementById('OIC');if(!c)return;
@@ -579,8 +601,8 @@ function rOI(){const c=document.getElementById('OIC');if(!c)return;
       <option value="custom" ${it.pid==='custom'?'selected':''}>✏️ חופשי</option></select>
       ${it.pid==='custom'?`<input type="text" placeholder="תיאור" value="${esc(it.desc)}" onchange="uOI(${i},'desc',this.value)" style="width:100%;margin-bottom:4px;padding:7px;background:var(--bg);border:1px solid var(--brd);border-radius:var(--r);color:var(--tx);font-size:13px">`:''}
       <div style="display:flex;gap:6px;align-items:center;font-size:12px;flex-wrap:wrap">
-        <span style="color:var(--tx2)">כמות:</span><input type="number" min="1" value="${it.qty}" onchange="uOI(${i},'qty',this.value)" style="width:60px;padding:5px;background:var(--bg);border:1px solid var(--brd);border-radius:6px;color:var(--tx);text-align:center;font-size:13px">
-        <span style="color:var(--tx2)">מחיר ₪:</span><input type="number" min="0" step="0.01" value="${it.price}" onchange="uOI(${i},'price',this.value)" style="width:80px;padding:5px;background:var(--bg);border:1px solid var(--brd);border-radius:6px;color:var(--tx);text-align:center;font-size:13px">
+        <span style="color:var(--tx2)">כמות</span>${stepper(it.qty,`uOI(${i},'qty',this.value)`)}
+        <span style="color:var(--tx2)">מחיר ₪</span>${stepper(it.price,`uOI(${i},'price',this.value)`,{dec:1,w:76})}
         <span style="margin-right:auto;font-weight:700">${cur2(lt)}</span>
         <button type="button" onclick="remOI(${i})" style="background:var(--rds);color:var(--rd);border:none;border-radius:6px;width:30px;height:30px;font-size:15px;cursor:pointer">✕</button></div></div>`;}).join('');
   uTot();
@@ -614,54 +636,13 @@ async function submitOrd(){
   oi.forEach(it=>{if(!it.pid||num(it.qty)<=0)return;const l=num(it.price)*num(it.qty);st+=l;
     items.push({id:it.pid==='custom'?'חופשי':it.pid,desc:it.desc||it.pid,qty:num(it.qty),price:num(it.price),total:l});});
   const vat=r2(st*C.VAT),total=r2(st+vat),oid=gid(),dt=now(),creator=S.user?.name||S.user?.gName||'';
-  const order={'מספר הזמנה':oid,'תאריך':dt,'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':sub,'יוצר':creator,'סטטוס':'ממתין לאישור','סהכ הזמנה לפני מעמ':st,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
+  const order={'מספר הזמנה':oid,'תאריך':dt,'ספק':sup,'פרויקט':proj,'תחום':dom,'תת תחום':sub,'יוצר':creator,'סטטוס':'ממתין לאספקה','סהכ הזמנה לפני מעמ':st,'מעמ':vat,'סהכ הזמנה כולל מעמ':total,'הערות':notes,items};
   showLd('שומר...');
   try{await ensureSheets();
-    const rows=items.map(it=>[oid,dt,sup,proj,dom,sub,creator,'ממתין לאישור',it.id,it.desc,it.qty,it.price,r2(it.total),r2(st),vat,total,notes]);
-    await shWrite(C.SH.ORD,rows);const lo=getLO();lo.push(order);saveLO(lo);hideLd();toast('✅ ההזמנה נשמרה. אפשר לשלוח אותה לספק','ok');
+    const rows=items.map(it=>[oid,dt,sup,proj,dom,sub,creator,'ממתין לאספקה',it.id,it.desc,it.qty,it.price,r2(it.total),r2(st),vat,total,notes]);
+    await shWrite(C.SH.ORD,rows);await shWrite(C.SH.RCV,rcvPendingRows({id:oid,supplier:sup,project:proj},items.map(it=>({sku:it.id,desc:it.desc,qty:it.qty}))));const lo=getLO();lo.push(order);saveLO(lo);hideLd();toast('✅ ההזמנה נשמרה. אפשר לשלוח אותה לספק','ok');
     oi=[{pid:'',qty:1,price:0,desc:''}];await syncAll(false);navigate('ord');mailOrder(oid);
   }catch(e){hideLd();toast(e.message,'er');}}
-
-// ===== APPROVE =====
-function rAppr(el){
-  const all=myOrders().filter(o=>stOf(o)==='ממתין לאישור');
-  el.innerHTML=`<div class="card-t">✅ אישור <span class="sub">${all.length}</span></div>
-    ${!all.length?'<div class="empty"><div class="ei">✅</div>אין ממתינות</div>':
-    all.map(o=>{const k=o.id.replace(/[^\w-]/g,'_');return`<div class="card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:4px">
-        <div><b>${esc(o.id)}</b><br><span style="font-size:11px;color:var(--tx2)">${esc(o.supplier)} | ${esc(o.project)}${o.domain?' | '+esc(o.domain):''}</span></div>
-        <div style="font-size:11px;color:var(--tx2);text-align:left">${esc(o.date)}<br>👤 ${esc(o.creator)}</div></div>
-      ${o.items.map((it,i)=>`<div class="oi"><div style="display:flex;justify-content:space-between"><div>
-        <input type="checkbox" id="ac_${k}_${i}" checked style="width:16px;height:16px;vertical-align:middle"> <b style="font-size:12px">${esc(it.desc)}</b></div>
-        <b style="font-size:12px">${cur2(it.qty*it.price)}</b></div>
-        <div style="font-size:11px;color:var(--tx2);margin-top:3px">מק״ט: ${esc(it.sku)} | מחיר: ${cur2(it.price)} | כמות:
-          <input type="number" id="aq_${k}_${i}" value="${it.qty}" min="0" style="width:55px;padding:2px;background:var(--bg);border:1px solid var(--brd);border-radius:4px;color:var(--tx);text-align:center;font-size:12px"></div></div>`).join('')}
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--brd);flex-wrap:wrap;gap:4px">
-        <div style="font-size:16px;font-weight:800">${cur2(o.total)}</div>
-        <div style="display:flex;gap:4px">${canApprove()?`<button class="btn bg bs" onclick="doApp(${jq(o.id)})">✓ אישור</button><button class="btn bd bs" id="rj_${k}" onclick="doRej(${jq(o.id)})">✗ דחייה</button>`:''}</div></div></div>`;}).join('')}`;
-}
-
-async function doApp(oid){if(!canApprove()){toast('אין הרשאה','er');return;}
-  if(!await reqAuth())return;
-  const o=getOrder(oid);if(!o){toast('לא נמצא','er');return;}const k=oid.replace(/[^\w-]/g,'_');
-  const approved=[];o.items.forEach((it,i)=>{const ck=document.getElementById('ac_'+k+'_'+i)?.checked,q=num(document.getElementById('aq_'+k+'_'+i)?.value);if(ck&&q>0)approved.push({...it,qty:q});});
-  if(!approved.length){toast('לא אושר שום פריט','er');return;}
-  const sb=r2(approved.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT),total=r2(sb+vat),by=S.user?.name||'',at=now();
-  showLd('מאשר...');
-  try{await ensureSheets();
-    await shWrite(C.SH.APP,approved.map(it=>[oid,o.date,o.supplier,o.project,o.domain||'',o.sub||'',o.creator||'','מאושר',it.sku,it.desc,it.qty,it.price,r2(it.qty*it.price),sb,vat,total,o.notes||'',by,at]));
-    if(!S.data.rcvRows.some(r=>r['מספר הזמנה']===oid))await shWrite(C.SH.RCV,rcvPendingRows(o,approved));
-    await setOrderStatus(oid,'מאושר');
-    const lo=getLO(),x=lo.find(y=>y['מספר הזמנה']===oid);if(x){x['סטטוס']='מאושר';saveLO(lo);}
-    await syncAll(false);await refreshTracking().catch(e=>log('TRK:'+e.message));
-    hideLd();toast('✅ אושר','ok');
-  }catch(e){hideLd();toast(e.message,'er');}render();}
-
-async function doRej(oid){if(!canApprove()){toast('אין הרשאה','er');return;}
-  const b=document.getElementById('rj_'+oid.replace(/[^\w-]/g,'_'));if(b&&!b.dataset.sure){b.dataset.sure=1;b.textContent='לחצו שוב לדחייה';return;}
-  if(!await reqAuth())return;
-  const lo=getLO(),x=lo.find(y=>y['מספר הזמנה']===oid);if(x){x['סטטוס']='נדחה';saveLO(lo);}
-  try{await setOrderStatus(oid,'נדחה');await syncAll(false);toast('נדחה');}catch(e){toast(e.message,'er');}render();}
 
 // ===== CLAUDE: read a delivery note or invoice =====
 let _sdk=null;
@@ -685,7 +666,7 @@ async function readDoc(kind,files,o,lines){
   for(const f of files){if(f.type==='application/pdf')content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:await fileB64(f)}});else content.push(await imgBlock(f));}
   const what=kind==='rcv'?'a delivery note (תעודת משלוח) that came with goods to a construction site':'a supplier tax invoice (חשבונית מס)';
   content.push({type:'text',text:`The attached file is ${what} from an Israeli supplier (Hebrew text, VAT 18%). We need to compare it with purchase order ${o.id} from supplier "${o.supplier}".
-Approved order lines (index | SKU | description | qty | unit price before VAT):
+Order lines (index | SKU | description | qty | unit price before VAT):
 ${lines.map(L=>`${L.i} | ${L.sku} | ${L.desc} | ${L.qty} | ${L.price}`).join('\n')}
 
 Extract every product line on the document as written. ${kind==='rcv'?'Delivery notes often have no prices; then use null for prices.':'Unit prices and line totals must be before VAT; if the document lists prices including VAT, divide by 1.18. Include a general discount as its own line with a negative total.'} Skip rows that are only subtotals, VAT, rounding or payment terms. For each line set "orderLine" to the index of the matching order line (match by SKU first, then by the meaning of the description, Hebrew abbreviations included), or null if nothing in the order matches.
@@ -714,16 +695,16 @@ function initDrafts(){const o=S.mo&&getOrder(S.mo);if(!o){RD=ID=null;return;}con
 
 function rMatch(el){
   if(S.mo&&getOrder(S.mo)){if(!RD)initDrafts();return rMatchOrder(el,getOrder(S.mo));}
-  const os=myOrders().filter(o=>isApproved(o));
-  const grp=[['ממתינות לאספקה',os.filter(o=>['מאושר','התקבל חלקית'].includes(stOf(o)))],['התקבלו, ממתינות לחשבונית',os.filter(o=>stOf(o)==='התקבל')],
+  const os=myOrders().filter(isOpen);
+  const grp=[['ממתינות לאספקה',os.filter(o=>stOf(o)==='ממתין לאספקה')],['התקבלו חלקית',os.filter(o=>stOf(o)==='התקבל חלקית')],['התקבלו, ממתינות לחשבונית',os.filter(o=>['התקבל',SPLIT_ST].includes(stOf(o)))],
     ['פערים בחשבונית',os.filter(o=>stOf(o)==='פערים בחשבונית')],['נסגרו',os.filter(o=>stOf(o)==='חשבונית אושרה')]];
   el.innerHTML=`<div class="card-t">📦 קבלת סחורה והשוואת חשבוניות</div>
-    <div class="card" style="font-size:12px;color:var(--tx2)">לכל הזמנה מאושרת: מעלים את <b>תעודת המשלוח</b> כשהסחורה מגיעה ובודקים מה התקבל בפועל, ואחר כך מעלים את <b>החשבונית</b> ומשווים מול מה שאושר ומה שהתקבל. כל בדיקה נשמרת בגיליון בלשוניות "קבלת סחורה", "השוואת חשבוניות" ו"מעקב הזמנות".</div>
+    <div class="card" style="font-size:12px;color:var(--tx2);line-height:1.6"><b>1.</b> כשהסחורה מגיעה: מעלים את תעודת המשלוח (או מקלידים כמויות) ולוחצים <b>אישור קבלה</b>. זה גם האישור של ההזמנה.<br><b>2.</b> אם חסר משהו: אפשר להמתין ליתרה, או ללחוץ <b>השלמת חוסרים מספק אחר</b>.<br><b>3.</b> כשמגיעה חשבונית: משווים אותה מול מה שהתקבל בפועל.</div>
     ${grp.map(([t,list])=>`<div class="card-t" style="margin-top:14px">${t} <span class="sub">${list.length}</span></div>
       ${list.length?list.map(o=>{const m=match3(o);return`<div class="card" style="padding:12px;cursor:pointer" onclick="navigate('match',${jq(o.id)})">
         <div style="display:flex;justify-content:space-between;gap:6px"><div><b style="font-size:13px">${esc(o.id)}</b><br><span style="font-size:11px;color:var(--tx2)">${esc(o.supplier)} | ${esc(o.project)}</span></div>
         <div style="text-align:left">${badge(stOf(o))}</div></div>
-        <div class="steps"><span class="on">✓ אושר ${cur(m.approved)}</span>›<span class="${m.rc?'on':''}">${m.rc?'✓ התקבל '+cur(m.received):'אספקה'}</span>›<span class="${m.iv?'on':''}">${m.iv?'✓ חשבונית '+cur(m.billed):'חשבונית'}</span></div></div>`;}).join(''):'<div class="note" style="margin-bottom:8px">אין</div>'}`).join('')}`;}
+        <div class="steps"><span class="on">✓ הוזמן ${cur(m.approved)}</span>›<span class="${m.rc?'on':''}">${m.rc?'✓ התקבל '+cur(m.received):'אספקה'}</span>›<span class="${m.iv?'on':''}">${m.iv?'✓ חשבונית '+cur(m.billed):'חשבונית'}</span></div></div>`;}).join(''):'<div class="note" style="margin-bottom:8px">אין</div>'}`).join('')}`;}
 
 function filesHtml(D,kind){return`<label class="drop" ondragover="event.preventDefault();this.classList.add('on')" ondragleave="this.classList.remove('on')" ondrop="event.preventDefault();this.classList.remove('on');addF('${kind}',event.dataTransfer.files)">
   <input type="file" accept="image/*,application/pdf" multiple onchange="addF('${kind}',this.files)">📎 צילום או PDF — לחצו או גררו לכאן</label>
@@ -731,11 +712,10 @@ function filesHtml(D,kind){return`<label class="drop" ondragover="event.preventD
 function addF(kind,fl){const D=kind==='rcv'?RD:ID;[...fl].forEach(f=>{if(f.type.startsWith('image/')||f.type==='application/pdf')D.files.push(f);else toast(f.name+': רק תמונה או PDF','er');});render();}
 
 function rMatchOrder(el,o){const al=apprLines(o),m=match3(o),rc=m.rc;
-  const ok=k=>!!apiKey();
   // Receipt section
   const rcvRows=al.map(L=>{const d=RD.lines.find(x=>x.i===L.i),prev=rc?(rc.q.get(L.i)||0):0,tot=prev+num(d.qty),diff=tot-L.qty;
     return`<tr class="${diff<0?'xo':diff>0?'xr':''}"><td>${esc(L.desc||L.sku)}<div class="mono" style="color:var(--tx3)">${esc(L.sku)}</div></td><td class="n">${L.qty}</td><td class="n">${prev||'—'}</td>
-      <td class="n"><input type="number" min="0" value="${num(d.qty)}" style="width:70px" onchange="RD.lines.find(x=>x.i===${L.i}).qty=num(this.value);render()"></td>
+      <td class="n">${stepper(num(d.qty),`RD.lines.find(x=>x.i===${L.i}).qty=num(this.value);render()`,{w:56})}</td>
       <td class="n" style="color:${diff<0?'var(--or)':diff>0?'var(--rd)':'var(--gn)'}">${diff===0?'✓':diff>0?'+'+diff:diff}</td></tr>`;}).join('');
   const short=al.some(L=>(rc?(rc.q.get(L.i)||0):0)+num(RD.lines.find(x=>x.i===L.i).qty)<L.qty);
   // Invoice comparison
@@ -745,7 +725,7 @@ function rMatchOrder(el,o){const al=apprLines(o),m=match3(o),rc=m.rc;
   <div class="card"><div style="font-size:12px;color:var(--tx2);margin-bottom:6px">🏢 ${esc(o.supplier)} · 📁 ${esc(o.project)}${o.domain?' · '+esc(o.domain):''}</div>
     <div class="card-t" style="margin:0">השוואה: הוזמן ↔ התקבל ↔ חויב</div>${match3Table(o)}</div>
 
-  <div class="card"><div class="card-t">📦 קבלת סחורה (תעודת משלוח) ${rc?`<span class="sub">${rc.docs.length} תעודות נקלטו</span>`:''}</div>
+  <div class="card"><div class="card-t">📦 קבלת סחורה ואישור ${rc?`<span class="sub">${rc.docs.length} תעודות נקלטו</span>`:''}</div>
     ${rc?`<div class="chips">${rc.docs.map(d=>d.file?`<a class="chip" href="${esc(d.file)}" target="_blank" rel="noopener">תעודה ${esc(d.no||'')} · ${esc(d.date)}</a>`:`<span class="chip">תעודה ${esc(d.no||'')} · ${esc(d.date)}</span>`).join('')}</div>`:''}
     ${filesHtml(RD,'rcv')}
     <div class="br"><button class="btn bv bs" ${RD.busy||!RD.files.length?'disabled':''} onclick="aiRcv()">🤖 קריאת התעודה עם Claude</button>
@@ -754,10 +734,11 @@ function rMatchOrder(el,o){const al=apprLines(o),m=match3(o),rc=m.rc;
     ${RD.ai?`<div class="verd v-mid">🤖 ${esc(RD.ai)}</div>`:''}
     <div class="frow" style="margin-top:10px"><div class="fg"><label>מספר תעודת משלוח</label><input type="text" value="${esc(RD.no)}" onchange="RD.no=this.value"></div>
       <div class="fg"><label>תאריך קבלה</label><input type="date" value="${esc(RD.date)}" onchange="RD.date=this.value"></div></div>
-    <div class="tw"><table class="t"><thead><tr><th>פריט</th><th>אושר</th><th>התקבל קודם</th><th>התקבל עכשיו</th><th>פער</th></tr></thead><tbody>${rcvRows}</tbody></table></div>
+    <div class="tw"><table class="t"><thead><tr><th>פריט</th><th>הוזמן</th><th>התקבל קודם</th><th>התקבל עכשיו</th><th>פער</th></tr></thead><tbody>${rcvRows}</tbody></table></div>
     <div class="fg"><label>הערות (פגמים, החלפות)</label><input type="text" value="${esc(RD.note)}" onchange="RD.note=this.value"></div>
-    ${short?'<div class="verd v-mid">⚠️ חסרים פריטים. אפשר לשמור קבלה חלקית ולקלוט את היתרה כשתגיע.</div>':''}
-    <button class="btn bg" onclick="saveRcv()">💾 שמירת קבלת הסחורה בגיליון</button></div>
+    ${short?'<div class="verd v-mid">⚠️ חסרים פריטים. שומרים קבלה חלקית, ואת היתרה מקבלים כשתגיע או מזמינים מספק אחר.</div>':''}
+    <button class="btn bg" onclick="saveRcv()">✓ אישור קבלה ושמירה בגיליון</button>
+    ${missingLines(o).length?`<div class="verd v-mid" style="margin-top:10px">חסרים ${missingLines(o).length} פריטים מאספקות קודמות.<button class="btn bv bs" onclick="shortModal(${jq(o.id)})">🔁 השלמת חוסרים מספק אחר</button></div>`:''}</div>
 
   <div class="card"><div class="card-t">🧾 השוואת חשבונית ${m.iv?`<span class="sub">חשבונית ${esc(m.iv.no)} · ${esc(m.iv.decision)}</span>`:''}</div>
     ${m.iv?.file?`<div class="chips"><a class="chip" href="${esc(m.iv.file)}" target="_blank" rel="noopener">📄 החשבונית השמורה</a></div>`:''}
@@ -768,12 +749,12 @@ function rMatchOrder(el,o){const al=apprLines(o),m=match3(o),rc=m.rc;
     ${ID.ai?`<div class="verd v-mid">🤖 ${esc(ID.ai)}</div>`:''}
     ${ID.lines.length?`<div class="frow" style="margin-top:10px"><div class="fg"><label>מספר חשבונית</label><input type="text" value="${esc(ID.no)}" onchange="ID.no=this.value"></div>
       <div class="fg"><label>תאריך חשבונית</label><input type="text" value="${esc(ID.date)}" onchange="ID.date=this.value"></div>
-      <div class="fg"><label>סה״כ לפני מע״מ (כמו בחשבונית)</label><input type="number" step="0.01" value="${esc(ID.subtotal)}" onchange="ID.subtotal=this.value;render()"></div>
-      <div class="fg"><label>מע״מ (כמו בחשבונית)</label><input type="number" step="0.01" value="${esc(ID.vat)}" onchange="ID.vat=this.value;render()"></div></div>
+      <div class="fg"><label>סה״כ לפני מע״מ (כמו בחשבונית)</label><input type="number" inputmode="decimal" step="0.01" onfocus="selAll(this)" value="${esc(ID.subtotal)}" onchange="ID.subtotal=this.value;render()"></div>
+      <div class="fg"><label>מע״מ (כמו בחשבונית)</label><input type="number" inputmode="decimal" step="0.01" onfocus="selAll(this)" value="${esc(ID.vat)}" onchange="ID.vat=this.value;render()"></div></div>
     <div class="tw"><table class="t"><thead><tr><th>תיאור בחשבונית</th><th>כמות</th><th>מחיר</th><th>סה״כ</th><th>פריט בהזמנה</th><th></th></tr></thead><tbody>
       ${ID.lines.map((l,i)=>`<tr><td><input type="text" value="${esc(l.desc)}" style="min-width:140px" onchange="ID.lines[${i}].desc=this.value"></td>
-        <td><input type="number" value="${num(l.qty)}" style="width:60px" onchange="setIL(${i},'qty',this.value)"></td>
-        <td><input type="number" step="0.01" value="${num(l.price)}" style="width:80px" onchange="setIL(${i},'price',this.value)"></td>
+        <td>${stepper(num(l.qty),`setIL(${i},'qty',this.value)`,{w:50})}</td>
+        <td>${stepper(num(l.price),`setIL(${i},'price',this.value)`,{dec:1,w:68})}</td>
         <td class="n">${cur2(ilTot(l))}</td>
         <td><select style="min-width:130px" onchange="ID.lines[${i}].match=this.value===''?null:Number(this.value);render()">${opts(l.match)}</select></td>
         <td><a href="#" style="color:var(--rd)" onclick="event.preventDefault();ID.lines.splice(${i},1);render()">✕</a></td></tr>`).join('')}</tbody></table></div>
@@ -786,12 +767,12 @@ function manualInv(){const o=getOrder(S.mo);if(!ID.lines.length){const rc=rcvInf
   ID.lines=apprLines(o).map(L=>({sku:L.sku,desc:L.desc,qty:rc?(rc.q.get(L.i)||0):L.qty,price:L.price,total:null,match:L.i}));}
   else ID.lines.push({sku:'',desc:'',qty:1,price:0,total:null,match:null});render();}
 
-// Compares the invoice draft with what was approved and what was received.
+// Compares the invoice draft with what was ordered and what was actually received.
 function invCompare(o){const al=apprLines(o),rc=rcvInfo(o.id);
   const rows=al.map(L=>{const ms=ID.lines.filter(l=>l.match===L.i),iq=ms.reduce((s,l)=>s+num(l.qty),0),it=r2(ms.reduce((s,l)=>s+ilTot(l),0)),ip=iq?it/iq:0;
     const rq=rc?(rc.q.get(L.i)||0):null,base=rq!==null?rq:L.qty,exp=r2(base*L.price),why=[];
     if(!ms.length){if(base>0)why.push('לא חויב');}
-    else{if(Math.abs(iq-base)>1e-9)why.push(rq!==null?`חויב על ${iq}, התקבלו ${rq}`:`חויב על ${iq}, אושרו ${L.qty}`);
+    else{if(Math.abs(iq-base)>1e-9)why.push(rq!==null?`חויב על ${iq}, התקבלו ${rq}`:`חויב על ${iq}, הוזמנו ${L.qty}`);
       if(Math.abs(ip-L.price)>0.011)why.push(`מחיר ${cur2(ip)} במקום ${cur2(L.price)}`);}
     return{L,rq,iq,ip,it,exp,d:r2(it-exp),why};});
   const extras=ID.lines.filter(l=>l.match===null||!al.some(L=>L.i===l.match));
@@ -806,7 +787,7 @@ function invVerdict(o,c){const ok=c.issues===0&&Math.abs(c.diff)<=1;
   return`<div class="verd ${ok?'v-ok':'v-bad'}"><b>${ok?'✅ החשבונית תואמת':'⚠️ '+(c.issues||1)+' פערים'}</b>
     <span style="color:var(--tx)">צפוי ${cur2(c.expected)} · בחשבונית ${cur2(c.sub)} · הפרש <b>${cur2(c.diff)}</b> (לפני מע״מ)</span></div>
     ${c.rows.filter(r=>r.why.length).map(r=>`<div class="oi" style="font-size:12px"><b>${esc(r.L.desc||r.L.sku)}</b> — ${esc(r.why.join(' · '))} <span style="color:var(--rd)">(${cur2(r.d)})</span></div>`).join('')}
-    ${c.extras.map(l=>`<div class="oi" style="font-size:12px"><b>${esc(l.desc||l.sku)}</b> — לא הוזמן או לא אושר <span style="color:var(--rd)">(${cur2(ilTot(l))})</span></div>`).join('')}
+    ${c.extras.map(l=>`<div class="oi" style="font-size:12px"><b>${esc(l.desc||l.sku)}</b> — לא הוזמן <span style="color:var(--rd)">(${cur2(ilTot(l))})</span></div>`).join('')}
     ${c.checks.map(x=>`<div class="oi" style="font-size:12px;color:var(--rd)">${esc(x)}</div>`).join('')}
     <div class="fg" style="margin-top:8px"><label>הערה</label><input type="text" value="${esc(ID.note)}" onchange="ID.note=this.value"></div>
     <div class="br"><button class="btn ${ok?'bg':'bo'} bs" onclick="saveInv('אושרה לתשלום')">${ok?'✓ אישור החשבונית לתשלום':'אישור לתשלום למרות הפערים'}</button>
@@ -837,9 +818,13 @@ async function saveRcv(){const o=getOrder(S.mo);if(!await reqAuth())return;
       if(!q)return;const old=raw[rn-1]||[],docs=[...new Set([old[3],RD.no].map(x=>(x||'').trim()).filter(Boolean))].join(', ');
       upd.push({range:`${T}C${rn}:D${rn}`,values:[[dt,docs]]},{range:`${T}J${rn}`,values:[[tot]]},
         {range:`${T}M${rn}:O${rn}`,values:[[by,[old[13],link].filter(Boolean).join(' '),[old[14],RD.note].filter(Boolean).join(' · ')]]});});
-    if(upd.length)await shBatchVals(upd);if(add.length)await shWrite(C.SH.RCV,add);await syncAll(false);
+    if(upd.length)await shBatchVals(upd);if(add.length)await shWrite(C.SH.RCV,add);
+    // Receiving is also the approval: what arrived in this delivery goes to "הזמנות מאושרות".
+    const got=al.map(L=>({...L,q:num(RD.lines.find(x=>x.i===L.i).qty)})).filter(L=>L.q>0),sb=r2(got.reduce((a,L)=>a+L.q*L.price,0)),vat=r2(sb*C.VAT);
+    await shWrite(C.SH.APP,got.map(L=>[o.id,o.date,o.supplier,o.project,o.domain||'',o.sub||'',o.creator||'','התקבל',L.sku,L.desc,L.q,L.price,r2(L.q*L.price),sb,vat,r2(sb+vat),RD.no?'תעודת משלוח '+RD.no:'',by,dt]));
+    await syncAll(false);
     const st=stOf(o);await setOrderStatus(o.id,st).catch(()=>{});await refreshTracking().catch(e=>log('TRK:'+e.message));
-    hideLd();toast(st==='התקבל'?'✅ הסחורה התקבלה במלואה':'נשמרה קבלה חלקית','ok');initDrafts();render();
+    hideLd();toast(st==='התקבל'?'✅ הסחורה התקבלה ואושרה':'✅ נשמרה קבלה חלקית','ok');initDrafts();render();
   }catch(e){hideLd();toast(e.message,'er');}}
 async function saveInv(decision){const o=getOrder(S.mo);if(!await reqAuth())return;const c=invCompare(o);
   showLd('שומר השוואת חשבונית...');
@@ -855,11 +840,58 @@ function disputeText(o,c){let t=`${supContact(o.supplier)?'שלום '+supContact
   c.extras.forEach(l=>t+=`• ${l.desc||l.sku}: חויב ${cur2(ilTot(l))} ולא הופיע בהזמנה המאושרת\n`);c.checks.forEach(x=>t+=`• ${x}\n`);
   t+=`\nסה"כ לפני מע"מ לפי ההזמנה ומה שהתקבל: ${cur2(c.expected)}\nסה"כ לפני מע"מ בחשבונית: ${cur2(c.sub)}\nהפרש: ${cur2(c.diff)}\n\nנבקש חשבונית מתוקנת או זיכוי.\n\nבברכה,\n${S.user?.name||''}\nE.Z — לבנות חכם`;return t;}
 
+// ===== SHORTAGES: re-order missing quantities from another supplier =====
+const normD=s=>String(s||'').replace(/["'״׳()\-\s.,]+/g,' ').trim().toLowerCase();
+// Other suppliers' catalog items for a missing line: same SKU first, then the same description.
+function altOffers(L,exclude){const{idC,dC,pC,sC}=prodCols(),d=normD(L.desc);
+  const out=S.data.products.filter(p=>(p[sC]||'').trim()&&!(p[sC]||'').trim().startsWith((exclude||'').trim())&&
+    ((L.sku&&(p[idC]||'').trim()===L.sku.trim())||(d.length>3&&normD(p[dC])===d))).map(p=>({sup:(p[sC]||'').trim(),sku:p[idC]||L.sku,desc:p[dC]||L.desc,price:num(p[pC])}));
+  return out.sort((a,b)=>a.price-b.price);}
+let SH_=null;
+function shortModal(oid){const o=getOrder(oid);
+  SH_={oid,lines:missingLines(o).map(L=>{const offers=altOffers(L,o.supplier),b=offers[0];
+    return{...L,ordered:L.qty,on:true,qty:L.miss,offers,sup:b?b.sup:'',price:b?b.price:L.price,sku:b?b.sku:L.sku};})};
+  shortRender();}
+function shortRender(){const o=getOrder(SH_.oid),oid=SH_.oid,nc=S.data.suppH[0]||'';
+  const others=S.data.suppliers.map(s=>(s[nc]||'').trim()).filter(n=>n&&!n.startsWith(o.supplier.trim()));
+  oModal(`<h3>🔁 השלמת חוסרים — ${esc(oid)}</h3>
+  <div class="note" style="margin-bottom:10px">הספק ${esc(o.supplier)} לא סיפק את הכמויות האלה. בחרו ספק אחר לכל פריט. כשיש את אותו מוצר בקטלוג אצל ספק אחר, הוא מוצע אוטומטית לפי המחיר הזול.</div>
+  ${SH_.lines.map((l,k)=>`<div class="oi"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" ${l.on?'checked':''} onchange="SH_.lines[${k}].on=this.checked" style="width:16px;height:16px"><b>${esc(l.desc||l.sku)}</b></label>
+    <div class="note" style="margin:3px 0 6px">הוזמנו ${l.ordered} · חסרים ${l.miss}${l.offers.length?` · ${l.offers.length} הצעות בקטלוג`:' · לא נמצא בקטלוג אצל ספק אחר'}</div>
+    <div class="frow"><div class="fg" style="margin:0"><label>ספק</label><select onchange="shPick(${k},this.value)">
+      ${l.offers.map(f=>`<option value="${esc(f.sup)}" ${f.sup===l.sup?'selected':''}>${esc(f.sup)} — ${cur2(f.price)}</option>`).join('')}
+      <option value="" ${!l.sup?'selected':''}>— בחירת ספק אחר —</option>${others.filter(n=>!l.offers.some(f=>f.sup===n)).map(n=>`<option value="${esc(n)}" ${n===l.sup?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+      <div class="fg" style="margin:0;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div><label>כמות</label>${stepper(l.qty,`SH_.lines[${k}].qty=num(this.value)`,{w:50})}</div>
+        <div><label>מחיר ₪</label>${stepper(l.price,`SH_.lines[${k}].price=num(this.value)`,{dec:1,w:64})}</div></div></div></div>`).join('')}
+  <div class="br"><button class="btn bp" onclick="placeShort()">יצירת הזמנה ושליחה לספק</button><button class="btn bo bs" onclick="cModal()">ביטול</button></div>`);}
+function shPick(k,sup){const l=SH_.lines[k],f=l.offers.find(z=>z.sup===sup);l.sup=sup;if(f){l.price=f.price;l.sku=f.sku;}
+  const bg=document.getElementById('mBg'),sc=bg.scrollTop;shortRender();bg.scrollTop=sc;}
+async function placeShort(){const o=getOrder(SH_.oid),pick=SH_.lines.filter(l=>l.on&&l.qty>0);
+  if(!pick.length){toast('לא נבחר אף פריט','er');return;}if(pick.some(l=>!l.sup)){toast('בחרו ספק לכל פריט מסומן','er');return;}
+  if(!await reqAuth())return;showLd('יוצר הזמנת השלמה...');
+  try{await ensureSheets();const groups=new Map();pick.forEach(l=>{if(!groups.has(l.sup))groups.set(l.sup,[]);groups.get(l.sup).push(l);});
+    const created=[],dt=now(),creator=S.user?.name||'';
+    for(const[sup,ls] of groups){let oid=gid();while(allOrders().some(x=>x.id===oid)||created.includes(oid))oid=gid();
+      const st=r2(ls.reduce((s,l)=>s+l.qty*l.price,0)),vat=r2(st*C.VAT),total=r2(st+vat),note='השלמה להזמנה '+o.id;
+      await shWrite(C.SH.ORD,ls.map(l=>[oid,dt,sup,o.project,o.domain||'',o.sub||'',creator,'ממתין לאספקה',l.sku,l.desc,l.qty,l.price,r2(l.qty*l.price),st,vat,total,note]));
+      await shWrite(C.SH.RCV,rcvPendingRows({id:oid,supplier:sup,project:o.project},ls.map(l=>({sku:l.sku,desc:l.desc,qty:l.qty}))));
+      created.push(oid);
+      // Mark the original lines as re-ordered so they stop counting as missing.
+      const raw=await shRead(C.SH.RCV),T="'"+C.SH.RCV+"'!",upd=[];
+      raw.forEach((r,ix)=>{if(!ix||(r[0]||'').trim()!==o.id)return;const L=ls.find(l=>String(l.i)===String(r[1]).trim());
+        if(L)upd.push({range:`${T}O${ix+1}`,values:[[[r[14],SPLIT_MARK+sup+' ('+oid+')'].filter(Boolean).join(' · ')]]});});
+      if(upd.length)await shBatchVals(upd);}
+    await syncAll(false);await setOrderStatus(o.id,stOf(o)).catch(()=>{});await refreshTracking().catch(e=>log('TRK:'+e.message));hideLd();
+    toast(`נוצרו ${created.length} הזמנות השלמה`,'ok');
+    if(created.length===1)mailOrder(created[0]);
+    else oModal(`<h3>נוצרו ${created.length} הזמנות השלמה</h3>${created.map(id=>{const x=getOrder(id);return`<div class="oi" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span><b>${esc(id)}</b> · ${esc(x?.supplier)}</span><button class="btn bp bs" onclick="mailOrder(${jq(id)})">📧 שליחה</button></div>`;}).join('')}<button class="btn bo" onclick="cModal()" style="margin-top:8px">סגור</button>`);
+  }catch(e){hideLd();toast(e.message,'er');}}
+
 // ===== PDF + GMAIL =====
 let h2pP=null;
 function loadH2P(){if(window.html2pdf)return Promise.resolve();if(h2pP)return h2pP;
   h2pP=new Promise((res,rej)=>{const s=document.createElement('script');s.src=C.H2P_URL;s.onload=res;s.onerror=()=>{h2pP=null;rej(new Error('לא הצלחתי לטעון את מחולל ה-PDF'));};document.head.appendChild(s);});return h2pP;}
-function orderDocHtml(o){const items=isApproved(o)?apprLines(o):o.items,sb=r2(items.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT);
+function orderDocHtml(o){const items=o.items,sb=r2(items.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT);
   // The tiny letter-spacing makes html2canvas place each letter from the browser's own layout; without it Hebrew loses its spaces.
   return`<style>.pd{font-family:'Heebo',Arial,sans-serif;direction:rtl;color:#1a1a2e;background:#fff;padding:26px;width:794px;letter-spacing:0.01px}
     .pd .h{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #2d7ff9}
@@ -886,44 +918,43 @@ async function downloadPdf(oid){const o=getOrder(oid);showLd('יוצר PDF...');
   catch(e){toast(e.message,'er');}hideLd();}
 // Email body: a right-to-left HTML letter (table layout and inline styles, which is what Gmail and Outlook render reliably).
 const mhtml=s=>esc(s).replace(/\n/g,'<br>');
+// The layout is one column of full-width blocks, so it reads the same on a phone and on a desktop (no wide tables, no media queries needed).
 function emailShell(id,title,inner){
-  return`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body dir="rtl" style="margin:0;padding:0;background:#eef1f6">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#eef1f6"><tr><td align="center" style="padding:24px 10px">
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" dir="rtl" style="width:100%;max-width:640px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,'Segoe UI',Helvetica,sans-serif;color:#1a2233;direction:rtl;text-align:right">
-<tr><td style="background:#0f1a33;padding:18px 24px">
+  return`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"></head>
+<body dir="rtl" style="margin:0;padding:0;background:#eef1f6;-webkit-text-size-adjust:100%">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#eef1f6"><tr><td align="center" style="padding:16px 8px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="width:100%;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,'Segoe UI',Helvetica,sans-serif;color:#1a2233;direction:rtl;text-align:right">
+<tr><td style="background:#0f1a33;padding:16px 18px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl"><tr>
-    <td style="text-align:right;vertical-align:middle"><img src="cid:ezlogo" width="54" height="54" alt="E.Z" style="display:block;border-radius:9px;border:0"></td>
-    <td style="text-align:left;vertical-align:middle;color:#ffffff;font-size:13px;line-height:1.5">${esc(title)}<br><span dir="ltr" style="font-size:19px;font-weight:bold;letter-spacing:.5px">${esc(id)}</span></td>
+    <td width="56" style="text-align:right;vertical-align:middle"><img src="cid:ezlogo" width="48" height="48" alt="E.Z" style="display:block;border-radius:8px;border:0"></td>
+    <td style="text-align:left;vertical-align:middle;color:#ffffff;font-size:13px;line-height:1.5">${esc(title)}<br><span dir="ltr" style="font-size:18px;font-weight:bold">${esc(id)}</span></td>
   </tr></table></td></tr>
 ${inner}
-<tr><td style="background:#f6f8fb;padding:14px 24px;text-align:center;font-size:12px;color:#8a93a8;border-top:1px solid #e5e9f2">E.Z — לבנות חכם</td></tr>
+<tr><td style="background:#f6f8fb;padding:12px 18px;text-align:center;font-size:12px;color:#8a93a8;border-top:1px solid #e5e9f2">E.Z — לבנות חכם</td></tr>
 </table></td></tr></table></body></html>`;}
-function orderEmailHtml(o,msg){const items=isApproved(o)?apprLines(o):o.items,sb=r2(items.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT);
-  const th='padding:10px 12px;background:#2d7ff9;color:#ffffff;font-size:13px;font-weight:bold;text-align:right;white-space:nowrap';
-  const td='padding:10px 12px;border-bottom:1px solid #e5e9f2;font-size:14px;text-align:right;vertical-align:top';
-  const kv=(k,v)=>`<td style="padding:6px 0;font-size:14px;text-align:right;width:50%"><span style="color:#6b7690">${k}:</span> <b>${esc(v)}</b></td>`;
+function orderEmailHtml(o,msg){const items=o.items,sb=r2(items.reduce((s,it)=>s+it.qty*it.price,0)),vat=r2(sb*C.VAT);
+  const row=(k,v)=>`<tr><td style="padding:4px 0;font-size:14px;color:#6b7690;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:4px 10px 4px 0;font-size:14px;font-weight:bold;vertical-align:top">${v}</td></tr>`;
+  const sum=(k,v,big)=>`<tr><td style="padding:3px 0;font-size:${big?16:14}px;${big?'font-weight:bold':'color:#6b7690'}">${k}</td><td style="padding:3px 0;text-align:left;font-size:${big?19:14}px;white-space:nowrap;${big?'font-weight:bold;color:#2d7ff9':''}">${v}</td></tr>`;
   return emailShell(o.id,'הזמנת רכש',`
-<tr><td style="padding:26px 24px 10px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>
-<tr><td style="padding:6px 24px 14px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#f6f8fb;border-radius:10px;padding:8px 14px">
-  <tr>${kv('מספר הזמנה',o.id)}${kv('תאריך',String(o.date||'').split(' ')[0])}</tr><tr>${kv('פרויקט',o.project)}${kv('מזמין',o.creator||S.user?.name||'')}</tr></table></td></tr>
-<tr><td style="padding:0 24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="border-collapse:collapse;border:1px solid #e5e9f2">
-  <tr><th style="${th}">מק״ט</th><th style="${th}">תיאור</th><th style="${th};text-align:center">כמות</th><th style="${th};text-align:left">מחיר</th><th style="${th};text-align:left">סה״כ</th></tr>
-  ${items.map((it,i)=>`<tr style="background:${i%2?'#fafbfd':'#ffffff'}"><td style="${td};color:#6b7690;font-size:13px" dir="ltr">${esc(it.sku)}</td><td style="${td}">${esc(it.desc)}</td>
-    <td style="${td};text-align:center">${it.qty}</td><td style="${td};text-align:left;white-space:nowrap">${cur2(it.price)}</td><td style="${td};text-align:left;white-space:nowrap"><b>${cur2(it.qty*it.price)}</b></td></tr>`).join('')}
-</table></td></tr>
-<tr><td style="padding:14px 24px 4px"><table role="presentation" cellpadding="0" cellspacing="0" dir="rtl" align="left" style="font-size:14px">
-  <tr><td style="padding:3px 0 3px 18px;color:#6b7690">לפני מע״מ</td><td style="text-align:left">${cur2(sb)}</td></tr>
-  <tr><td style="padding:3px 0 3px 18px;color:#6b7690">מע״מ 18%</td><td style="text-align:left">${cur2(vat)}</td></tr>
-  <tr><td style="padding:8px 0 3px 18px;font-weight:bold;font-size:16px">סה״כ לתשלום</td><td style="text-align:left;font-weight:bold;font-size:18px;color:#2d7ff9">${cur2(sb+vat)}</td></tr></table></td></tr>
-${o.notes?`<tr><td style="padding:8px 24px;font-size:14px"><b>הערות:</b> ${esc(o.notes)}</td></tr>`:''}
-<tr><td style="padding:12px 24px 24px"><div style="background:#eef5ff;border-right:4px solid #2d7ff9;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.6">
+<tr><td style="padding:22px 18px 8px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>
+<tr><td style="padding:6px 18px 14px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="background:#f6f8fb;border-radius:10px"><tr><td style="padding:10px 14px">
+  <table role="presentation" cellpadding="0" cellspacing="0" dir="rtl">${row('מספר הזמנה:',`<span dir="ltr">${esc(o.id)}</span>`)}${row('תאריך:',esc(String(o.date||'').split(' ')[0]))}${row('פרויקט:',esc(o.project))}${row('מזמין:',esc(o.creator||S.user?.name||''))}</table>
+</td></tr></table></td></tr>
+<tr><td style="padding:0 18px"><div style="font-size:13px;font-weight:bold;color:#6b7690;padding:0 0 6px;border-bottom:2px solid #2d7ff9">פריטים בהזמנה (${items.length})</div>
+  ${items.map(it=>`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl" style="border-bottom:1px solid #e5e9f2"><tr>
+    <td style="padding:10px 0;vertical-align:top;text-align:right"><div style="font-size:15px;font-weight:bold;line-height:1.4">${esc(it.desc||it.sku)}</div>
+      <div style="font-size:13px;color:#6b7690;padding-top:3px">${it.sku?`מק״ט <span dir="ltr">${esc(it.sku)}</span> · `:''}${it.qty} × ${cur2(it.price)}</div></td>
+    <td style="padding:10px 10px 10px 0;vertical-align:top;text-align:left;font-size:15px;font-weight:bold;white-space:nowrap">${cur2(it.qty*it.price)}</td></tr></table>`).join('')}</td></tr>
+<tr><td style="padding:12px 18px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="rtl">
+  ${sum('לפני מע״מ',cur2(sb))}${sum('מע״מ 18%',cur2(vat))}${sum('סה״כ לתשלום',cur2(sb+vat),1)}</table></td></tr>
+${o.notes?`<tr><td style="padding:8px 18px;font-size:14px"><b>הערות:</b> ${esc(o.notes)}</td></tr>`:''}
+<tr><td style="padding:12px 18px 18px"><div style="background:#eef5ff;border-right:4px solid #2d7ff9;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.6">
   📎 ההזמנה מצורפת כקובץ PDF.<br>נא לציין את מספר ההזמנה <b dir="ltr">${esc(o.id)}</b> בתעודת המשלוח ובחשבונית.</div></td></tr>
-<tr><td style="padding:0 24px 26px;font-size:15px;line-height:1.7;text-align:right">בברכה,<br><b>${esc(S.user?.name||'')}</b><br>E.Z — לבנות חכם</td></tr>`);}
-function textEmailHtml(id,title,msg){return emailShell(id,title,`<tr><td style="padding:26px 24px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>`);}
+<tr><td style="padding:0 18px 22px;font-size:15px;line-height:1.7;text-align:right">בברכה,<br><b>${esc(S.user?.name||'')}</b><br>E.Z — לבנות חכם</td></tr>`);}
+function textEmailHtml(id,title,msg){return emailShell(id,title,`<tr><td style="padding:22px 18px;font-size:15px;line-height:1.75;text-align:right">${mhtml(msg)}</td></tr>`);}
 function orderMsg(o){const c=supContact(o.supplier);
   return`${c?'שלום '+c+',':'שלום רב,'}\n\nמצורפת הזמנת רכש עבור פרויקט ${o.project}.\nנבקש לאשר את קבלת ההזמנה ולתאם מועד אספקה.`;}
-function orderPlain(o,msg){const items=isApproved(o)?apprLines(o):o.items;
+function orderPlain(o,msg){const items=o.items;
   return msg+'\n\nהזמנה '+o.id+'\n'+items.map((it,i)=>`${i+1}. ${it.desc||it.sku} | מק"ט ${it.sku||'-'} | כמות ${it.qty} | ${cur2(it.qty*it.price)}`).join('\n')+'\n\nנא לציין את מספר ההזמנה בתעודת המשלוח ובחשבונית.\n\nבברכה,\n'+(S.user?.name||'')+'\nE.Z — לבנות חכם';}
 
 function mailOrder(oid){const o=getOrder(oid);if(!o)return;mailModal({to:supEmail(o.supplier),subj:'הזמנת רכש '+o.id+' — '+o.project,msg:orderMsg(o),oid,pdf:true});}
